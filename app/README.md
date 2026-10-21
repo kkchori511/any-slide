@@ -21,12 +21,13 @@ open app/index.html
 | --- | --- |
 | `index.html` | 도구 모음, 썸네일, 무대, 스티커 패널 |
 | `style.css` | 화면 스타일과 애니메이션 |
-| `app.js` | 슬라이드 6종의 레이아웃 정의(`TYPES`), 렌더링, 편집, 스티커, 발표 모드, 저장 |
+| `deck-spec.js` | 슬라이드 형태(`TYPES`), 허용 스티커(`STICKERS`), 기본 덱, 덱 검증 |
+| `app.js` | 렌더링, 편집, 스티커 조작, 발표 모드, 저장 |
 | `assets/` | 배경, 캐릭터, 소품 PNG |
 | `assets/generated/` | Codex 이미지 생성으로 만든 스티커 |
 
-새 슬라이드 형태를 추가하려면 `app.js`의 `TYPES`에 항목을 더한다. 좌표는 1920x1080 기준이다.
-새 스티커를 추가하려면 `assets/generated/`에 투명 PNG를 넣고 `app.js`의 `STICKERS` 목록에 경로를 적는다. 스타일 규칙은 `docs/핵심브리프_스티커에셋.md`를 따른다.
+새 슬라이드 형태를 추가하려면 `deck-spec.js`의 `TYPES`에 항목을 더한다. 좌표는 1920x1080 기준이다.
+새 스티커를 추가하려면 `assets/generated/`에 투명 PNG를 넣고 `deck-spec.js`의 `STICKERS` 목록에 경로를 적는다. 스타일 규칙은 `docs/핵심브리프_스티커에셋.md`를 따른다.
 
 ## 개발용 URL 해시
 
