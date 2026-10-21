@@ -32,3 +32,12 @@ open app/index.html
 
 - `index.html#s=3` : 3번 슬라이드로 연다.
 - `index.html#s=3&view` : 전체 화면 요청 없이 발표 화면으로 연다. 화면 캡처 확인에 쓴다.
+
+## 덱 파일로 내용 넣기
+
+발표 내용은 `decks/`에 덱 JSON으로 만들고 [불러오기]로 연다. Claude나 Codex에게 "이 내용으로 슬라이드 만들어 줘"라고 하면 `slide-deck` 스킬(`.claude/skills/slide-deck/`, `.codex/skills/slide-deck/`)에 따라 덱 파일을 만든다. 예시는 `decks/예시_앱사용안내.json`.
+
+- 검사: `node .claude/skills/slide-deck/scripts/check-deck.mjs decks/<파일>.json`
+- 미리 보기(PNG): `node .claude/skills/slide-deck/scripts/preview-deck.mjs decks/<파일>.json <출력폴더>`
+
+덱 규칙(슬라이드 형태, 허용 스티커, 검증)의 원본은 `app/deck-spec.js`다.

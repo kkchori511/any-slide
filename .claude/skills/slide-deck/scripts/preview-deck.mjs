@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+// 덱 JSON을 앱으로 그려서 슬라이드마다 PNG로 저장한다 (macOS Chrome 헤드리스).
+// 사용법: node .claude/skills/slide-deck/scripts/preview-deck.mjs decks/<파일>.json [출력폴더]
+// 출력 폴더 기본값: 운영체제 임시 폴더 아래 any-slide-preview
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+const file = process.argv[2];
+const out = path.resolve(process.argv[3] || path.join(os.tmpdir(), 'any-slide-preview'));
+if (!file) { console.error('사용법: node preview-deck.mjs <덱.json> [출력폴더]'); process.exit(1); }
+const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+if (!fs.existsSync(CHROME)) { console.error(`Chrome을 찾지 못함: ${CHROME} (CHROME 환경 변수로 지정)`); process.exit(1); }
+
+const deck = JSON.parse(fs.readFileSync(file, 'utf8'));
+const appDir = path.join(root, 'app');
+const html = fs.readFileSync(path.join(appDir, 'index.html'), 'utf8');
+// 앱이 시작하기 전에 덱을 브라우저 저장소에 넣는 임시 페이지 (앱과 같은 폴더여야 에셋 경로가 맞는다)
+const tmp = path.join(appDir, `_preview-${process.pid}.html`);
+// 쪽 번호 표시(#hud)는 슬라이드 내용이 아니므로 캡처에서 숨긴다
+const inject = `<style>#hud{display:none!important}</style>`
+  + `<script>try{localStorage.setItem('any-slide-deck-v1', ${JSON.stringify(JSON.stringify(deck))})}catch(e){}</script>`;
+fs.writeFileSync(tmp, html.replace('<script src="deck-spec.js">', inject + '<script src="deck-spec.js">'));
+fs.mkdirSync(out, { recursive: true });
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'any-slide-chrome-'));
+
+try {
+  for (let i = 1; i <= deck.slides.length; i++) {
+    const png = path.join(out, `slide-${String(i).padStart(2, '0')}.png`);
+    execFileSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--hide-scrollbars', `--user-data-dir=${profile}`,
+      '--window-size=1920,1080', '--virtual-time-budget=8000', `--screenshot=${png}`,
+      `file://${tmp}#s=${i}&view`,
+    ], { stdio: 'ignore' });
+    console.log(png);
+  }
+} finally {
+  fs.rmSync(tmp, { force: true });
+  fs.rmSync(profile, { recursive: true, force: true });
+}

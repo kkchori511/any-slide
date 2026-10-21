@@ -1,0 +1,64 @@
+{
+  "bg": "ivory",
+  "font": "",
+  "anim": true,
+  "slides": [
+    {
+      "type": "cover",
+      "title": "any-slide\n사용 안내",
+      "sub": "내 캐릭터와 함께하는 발표 슬라이드",
+      "name": "발표자 이름",
+      "stickers": []
+    },
+    {
+      "type": "chapterA",
+      "num": "01",
+      "title": "덱 만들기",
+      "sub": "내용만 주면 슬라이드가 만들어져요",
+      "stickers": []
+    },
+    {
+      "type": "body",
+      "title": "이렇게 부탁하세요",
+      "body": "• 발표 주제와 청중\n• 넣고 싶은 내용 (요점, 숫자, 예시)\n• 원하는 장 수",
+      "sub": "\"이 내용으로 슬라이드 만들어 줘\"라고 말하면 돼요",
+      "stickers": [
+        {
+          "src": "assets/generated/sticker_체크.png",
+          "x": 1450,
+          "y": 420,
+          "w": 220,
+          "float": true
+        }
+      ]
+    },
+    {
+      "type": "explain",
+      "title": "그다음은?",
+      "bubble": "앱의 [불러오기]로\n덱 파일을 열면\n바로 고치고 발표해요",
+      "stickers": []
+    },
+    {
+      "type": "chapterB",
+      "num": "02",
+      "title": "발표하기",
+      "sub": "F 키로 전체 화면, Esc로 끝내요",
+      "stickers": []
+    },
+    {
+      "type": "end",
+      "title": "감사합니다",
+      "sub": "궁금한 점을 함께 나눠요",
+      "name": "발표자 이름",
+      "stickers": [
+        {
+          "src": "assets/generated/sticker_하트.png",
+          "x": 700,
+          "y": 700,
+          "w": 200,
+          "float": true
+        }
+      ]
+    }
+  ]
+}
