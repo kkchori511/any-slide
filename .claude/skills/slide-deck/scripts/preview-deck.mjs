@@ -20,8 +20,9 @@ const appDir = path.join(root, 'app');
 const html = fs.readFileSync(path.join(appDir, 'index.html'), 'utf8');
 // 앱이 시작하기 전에 덱을 브라우저 저장소에 넣는 임시 페이지 (앱과 같은 폴더여야 에셋 경로가 맞는다)
 const tmp = path.join(appDir, `_preview-${process.pid}.html`);
-// 쪽 번호 표시(#hud)는 슬라이드 내용이 아니므로 캡처에서 숨긴다
-const inject = `<style>#hud{display:none!important}</style>`
+// 쪽 번호 표시(#hud)는 슬라이드 내용이 아니므로 숨기고, 등장 애니메이션은 꺼서 다 나타난 최종 화면을 찍는다
+// (애니메이션이 켜져 있으면 늦게 나오는 스티커가 캡처에서 빠질 때가 있다)
+const inject = `<style>#hud{display:none!important}.slide,.slide *{animation:none!important}</style>`
   + `<script>try{localStorage.setItem('any-slide-deck-v1', ${JSON.stringify(JSON.stringify(deck))})}catch(e){}</script>`;
 fs.writeFileSync(tmp, html.replace('<script src="deck-spec.js">', inject + '<script src="deck-spec.js">'));
 fs.mkdirSync(out, { recursive: true });
