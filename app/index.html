@@ -8,51 +8,59 @@
 </head>
 <body class="edit">
 <header id="toolbar">
-  <div class="group">
-    <button id="btnPresent" class="primary" title="발표 시작 (F) · 발표 중 Esc로 종료">▶ 발표</button>
+  <div id="mainbar">
+    <div class="group">
+      <button id="btnPresent" class="primary" title="발표 시작 (F) · 발표 중 Esc로 종료">▶ 발표</button>
+    </div>
+    <div class="group">
+      <select id="selAdd" title="새 슬라이드 추가"><option value="">＋ 슬라이드 추가</option></select>
+      <select id="selType" title="현재 슬라이드의 형태"></select>
+      <button id="btnDup" title="슬라이드 복제">복제</button>
+      <button id="btnUp" title="앞으로">↑</button>
+      <button id="btnDown" title="뒤로">↓</button>
+      <button id="btnDel" title="슬라이드 삭제" class="danger">삭제</button>
+    </div>
+    <div class="group">
+      <button id="btnSticker" title="스티커 추가">스티커</button>
+      <button id="btnSettings" title="배경, 글꼴, 장 전환, 애니메이션">설정</button>
+    </div>
+    <div class="group">
+      <button id="btnExport" title="덱을 JSON 파일로 저장">저장</button>
+      <button id="btnImport" title="JSON 파일 불러오기">불러오기</button>
+      <button id="btnReset" class="danger" title="처음 상태로">초기화</button>
+    </div>
   </div>
-  <div class="group">
-    <select id="selAdd" title="새 슬라이드 추가"><option value="">＋ 슬라이드 추가</option></select>
-    <select id="selType" title="현재 슬라이드의 형태"></select>
-    <button id="btnDup" title="복제">복제</button>
-    <button id="btnUp" title="앞으로">↑</button>
-    <button id="btnDown" title="뒤로">↓</button>
-    <button id="btnDel" title="삭제" class="danger">삭제</button>
-  </div>
-  <div class="group">
-    <select id="selBg" title="배경">
-      <option value="ivory">배경: 아이보리</option>
-      <option value="sage">배경: 세이지</option>
-      <option value="bluegray">배경: 블루그레이</option>
-    </select>
-    <input id="inFont" type="text" placeholder="글꼴 (기본: 페이퍼로지)" title="다른 글꼴을 쓰려면 컴퓨터에 설치된 글꼴 이름을 입력. 비우면 페이퍼로지">
-    <label class="check"><input id="chkAnim" type="checkbox" checked> 애니메이션</label>
-  </div>
-  <div class="group">
-    <button id="btnSticker" title="스티커 추가">스티커</button>
-    <button id="btnExport" title="덱을 JSON 파일로 저장">저장</button>
-    <button id="btnImport" title="JSON 파일 불러오기">불러오기</button>
-    <button id="btnReset" class="danger" title="처음 상태로">초기화</button>
-  </div>
+  <!-- 글자를 고르면 글자 도구, 스티커를 고르면 스티커 도구, 아니면 이 장의 옵션 -->
+  <div id="ctxbar" aria-label="선택한 것의 도구"></div>
 </header>
 
 <aside id="thumbs" aria-label="슬라이드 목록"></aside>
 
 <main id="stageWrap">
   <div id="stageBox"><div id="slideHost"></div></div>
-  <div id="hint">텍스트를 클릭해서 바로 수정 · 스티커는 끌어서 이동, 모서리 점으로 크기 조절 · Delete로 삭제</div>
+  <div id="hint"></div>
 </main>
 
-<div id="stickerPanel" hidden>
-  <div class="panel-title">스티커 <button id="btnPanelClose" aria-label="닫기">✕</button></div>
+<div id="stickerPanel" class="float-panel" hidden>
+  <div class="panel-title"><span id="stickerPanelTitle">스티커</span> <button id="btnStickerClose" aria-label="닫기">✕</button></div>
   <div id="stickerGrid"></div>
-  <div class="panel-actions">
-    <label class="check"><input id="chkStickerMove" type="checkbox" checked> 선택한 스티커 둥실둥실</label>
-    <button id="btnStickerDel" class="danger">선택한 스티커 삭제</button>
-  </div>
 </div>
 
-<div id="hud" aria-hidden="true"></div>
+<div id="settingsPanel" class="float-panel" hidden>
+  <div class="panel-title">설정 <button id="btnSettingsClose" aria-label="닫기">✕</button></div>
+  <label class="set-row">배경 <select id="selBg"></select></label>
+  <label class="set-row">글꼴 <input id="inFont" type="text" placeholder="기본: 페이퍼로지" title="다른 글꼴을 쓰려면 컴퓨터에 설치된 글꼴 이름을 입력. 비우면 페이퍼로지"></label>
+  <hr class="set-sep">
+  <label class="set-row">장 전환 <select id="selTransition"></select></label>
+  <label class="set-row">전환 속도 <span><input id="rngDuration" type="range" min="0.2" max="1" step="0.1"> <span id="lblDuration"></span></span></label>
+  <label class="set-row">이 장만 <select id="selSlideTransition"></select></label>
+  <hr class="set-sep">
+  <label class="set-row">글자 등장 <select id="selTextAnim"></select></label>
+  <label class="set-row">그림 등장 <span class="check"><input id="chkImgAnim" type="checkbox"> 켜기</span></label>
+  <label class="set-row">둥실둥실 <span class="check"><input id="chkFloat" type="checkbox"> 켜기</span></label>
+</div>
+
+<div id="hud" aria-live="polite"></div>
 <input id="fileImport" type="file" accept="application/json,.json" hidden>
 <script src="deck-spec.js"></script>
 <script src="app.js"></script>
