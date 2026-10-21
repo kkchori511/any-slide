@@ -91,7 +91,7 @@ function defaultDeck() {
 }
 
 /* ===== 상태 ===== */
-let deck = loadDeck();
+let deck;             // 맨 아래에서 loadDeck()로 채운다 (상수 선언 뒤에 실행해야 함)
 let cur = 0;          // 현재 슬라이드
 let sel = -1;         // 선택된 스티커 인덱스
 let mode = 'edit';    // 'edit' | 'present'
@@ -100,34 +100,77 @@ let scale = 1;
 const $ = id => document.getElementById(id);
 const host = $('slideHost'), box = $('stageBox'), wrap = $('stageWrap');
 
+const HINT = '텍스트를 클릭해서 바로 수정 · 스티커는 끌어서 이동, 모서리 점으로 크기 조절 · Delete로 삭제';
+let loadWarning = '';
+
 function loadDeck() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    raw = localStorage.getItem(STORE_KEY);
     if (raw) return sanitize(JSON.parse(raw));
-  } catch (e) { /* 저장소를 못 쓰면 기본값으로 */ }
+  } catch (e) {
+    // 저장된 내용이 깨졌다면 지우지 않고 복구용으로 따로 보관한다
+    if (raw) {
+      try { localStorage.setItem(STORE_KEY + '-broken', raw); } catch (e2) { /* 무시 */ }
+      loadWarning = '⚠ 저장된 덱을 읽지 못해 새 덱으로 열었어요. 이전 내용은 브라우저에 복구용으로 남겨 두었어요.';
+    }
+  }
   return defaultDeck();
 }
+const MAX_SLIDES = 300, MAX_STICKERS = 100, MAX_TEXT = 5000;
+const FIELDS = ['title', 'sub', 'name', 'body', 'bubble', 'num'];
+
+// 허용한 필드만 새 객체로 복사한다. 잘못된 구조는 예외를 던져 호출한 쪽이 기존 덱을 지키게 한다.
 function sanitize(d) {
-  const base = defaultDeck();
-  if (!d || !Array.isArray(d.slides) || !d.slides.length) return base;
+  if (!d || typeof d !== 'object' || !Array.isArray(d.slides) || !d.slides.length) {
+    throw new Error('슬라이드가 없는 파일입니다.');
+  }
+  if (d.slides.length > MAX_SLIDES) throw new Error('슬라이드가 너무 많습니다.');
+  const num = (v, min, max, dflt) => (Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : dflt);
   return {
-    bg: BG[d.bg] ? d.bg : 'ivory',
-    font: typeof d.font === 'string' ? d.font : '',
+    bg: Object.hasOwn(BG, d.bg) ? d.bg : 'ivory',
+    font: typeof d.font === 'string' ? d.font.slice(0, 100) : '',
     anim: d.anim !== false,
-    slides: d.slides.map(s => ({
-      ...s,
-      type: TYPES[s.type] ? s.type : 'body',
-      stickers: Array.isArray(s.stickers) ? s.stickers.filter(k => k && typeof k.src === 'string') : [],
-    })),
+    slides: d.slides.map(s => {
+      if (!s || typeof s !== 'object' || !Object.hasOwn(TYPES, s.type)) throw new Error('알 수 없는 슬라이드 형태가 있습니다.');
+      const out = { type: s.type, stickers: [] };
+      for (const f of FIELDS) if (typeof s[f] === 'string') out[f] = s[f].slice(0, MAX_TEXT);
+      for (const k of (Array.isArray(s.stickers) ? s.stickers : []).slice(0, MAX_STICKERS)) {
+        // 이미지는 앱의 assets 폴더 안 파일만 허용한다 (외부 주소 차단)
+        if (!k || typeof k.src !== 'string' || !/^assets\/[^"'<>\\:]+$/.test(k.src) || k.src.includes('..')) continue;
+        const w = num(k.w, 40, W, 220);
+        out.stickers.push({ src: k.src, w, x: num(k.x, -w / 2, W - w / 2, 0), y: num(k.y, -w / 2, H - w / 2, 0), float: k.float !== false });
+      }
+      return out;
+    }),
   };
 }
-let saveTimer = 0;
+
+// 저장: 실패하면 화면에 알린다. 페이지를 닫기 전에는 즉시 저장한다.
+let saveTimer = 0, dirty = false;
 function save() {
+  dirty = true;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(deck)); } catch (e) { /* 무시 */ }
-  }, 200);
+  saveTimer = setTimeout(flushSave, 200);
 }
+function flushSave() {
+  clearTimeout(saveTimer);
+  if (!dirty) return;
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(deck));
+    dirty = false;
+    setStatus('');
+  } catch (e) {
+    setStatus('⚠ 자동 저장 실패: 브라우저 저장 공간을 쓸 수 없어요. [저장] 버튼으로 파일을 내려받아 두세요.');
+  }
+}
+function setStatus(msg) {
+  const el = $('hint');
+  el.classList.toggle('warn', !!msg);
+  el.textContent = msg || HINT;
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
 
 /* ===== 렌더링 ===== */
 function esc(s) {
@@ -175,7 +218,7 @@ function makeSlide(slide, opts) {
 function fit() {
   const r = wrap.getBoundingClientRect();
   const pad = mode === 'present' ? 0 : 36;
-  scale = Math.min((r.width - pad) / W, (r.height - pad) / H);
+  scale = Math.max(0.05, Math.min((r.width - pad) / W, (r.height - pad) / H));
   box.style.width = W * scale + 'px';
   box.style.height = H * scale + 'px';
   const el = host.firstElementChild;
@@ -194,8 +237,11 @@ function renderStage() {
 function renderThumbs() {
   const list = $('thumbs');
   list.replaceChildren(...deck.slides.map((s, i) => {
-    const t = document.createElement('div');
+    const t = document.createElement('button');
+    t.type = 'button';
     t.className = 'thumb' + (i === cur ? ' active' : '');
+    t.setAttribute('aria-label', `${i + 1}번 슬라이드 (${TYPES[s.type].label})`);
+    if (i === cur) t.setAttribute('aria-current', 'true');
     const inner = makeSlide(s, { editable: false, animate: false });
     inner.classList.remove('enter');
     t.innerHTML = `<span class="no">${i + 1}</span><div class="box"></div>`;
@@ -210,11 +256,12 @@ function syncToolbar() {
   $('selBg').value = deck.bg;
   $('inFont').value = deck.font;
   $('chkAnim').checked = deck.anim;
-  $('btnEdit').classList.toggle('on', mode === 'edit');
 }
 
-function go(i) {
-  cur = Math.max(0, Math.min(deck.slides.length - 1, i));
+function go(i, force) {
+  const next = Math.max(0, Math.min(deck.slides.length - 1, i));
+  if (next === cur && !force && host.firstElementChild) return;   // 같은 장이면 애니메이션을 다시 돌리지 않음
+  cur = next;
   renderStage(); renderThumbs(); syncToolbar();
   const a = $('thumbs').children[cur];
   if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest' });
@@ -260,14 +307,28 @@ host.addEventListener('pointerdown', e => {
   st.setPointerCapture(e.pointerId);
   const move = ev => {
     const dx = (ev.clientX - sx) / scale, dy = (ev.clientY - sy) / scale;
-    if (resizing) { data.w = Math.max(40, Math.round(ow + dx)); st.style.width = data.w + 'px'; }
-    else { data.x = Math.round(ox + dx); data.y = Math.round(oy + dy); st.style.left = data.x + 'px'; st.style.top = data.y + 'px'; }
+    if (resizing) {
+      data.w = Math.min(W, Math.max(40, Math.round(ow + dx)));
+      st.style.width = data.w + 'px';
+    } else {
+      // 최소 절반은 슬라이드 안에 남도록 제한해서 화면 밖으로 잃어버리지 않게 함
+      data.x = Math.min(W - data.w / 2, Math.max(-data.w / 2, Math.round(ox + dx)));
+      data.y = Math.min(H - data.w / 2, Math.max(-data.w / 2, Math.round(oy + dy)));
+      st.style.left = data.x + 'px'; st.style.top = data.y + 'px';
+    }
   };
-  const up = () => {
-    st.removeEventListener('pointermove', move); st.removeEventListener('pointerup', up);
+  // 손을 떼거나 터치가 취소되거나 캡처를 잃어도 같은 방식으로 마무리한다
+  const end = () => {
+    st.removeEventListener('pointermove', move);
+    st.removeEventListener('pointerup', end);
+    st.removeEventListener('pointercancel', end);
+    st.removeEventListener('lostpointercapture', end);
     save(); refreshThumb();
   };
-  st.addEventListener('pointermove', move); st.addEventListener('pointerup', up);
+  st.addEventListener('pointermove', move);
+  st.addEventListener('pointerup', end);
+  st.addEventListener('pointercancel', end);
+  st.addEventListener('lostpointercapture', end);
 });
 
 function addSticker(src, w) {
@@ -332,7 +393,10 @@ wrap.addEventListener('click', e => {
 
 /* ===== 키보드 ===== */
 document.addEventListener('keydown', e => {
-  const typing = e.target.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+  if (e.isComposing || e.keyCode === 229) return;   // 한글 조합 중에는 앱 단축키를 건드리지 않음
+  if (mode === 'present') kickIdle();
+  // 입력창·버튼·링크처럼 자기 키 동작이 있는 요소에서는 슬라이드 이동 단축키를 쓰지 않음
+  const typing = e.target.isContentEditable || /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/.test(e.target.tagName);
   if (e.key === 'Escape') {
     if (typing) { e.target.blur(); return; }
     if (mode === 'present') endPresent();
@@ -348,8 +412,6 @@ document.addEventListener('keydown', e => {
     case 'End': go(deck.slides.length - 1); break;
     case 'f': case 'F': case 'p': case 'P':
       mode === 'present' ? endPresent() : startPresent(); break;
-    case 'e': case 'E':
-      if (mode === 'edit') { /* 편집 모드에서는 이미 편집 중 */ } break;
     case 'Delete':
       if (mode === 'edit') deleteSticker(); break;
   }
@@ -365,7 +427,6 @@ function buildToolbar() {
   add.addEventListener('change', () => { if (add.value) addSlide(add.value); add.value = ''; });
   typeSel.addEventListener('change', () => { deck.slides[cur].type = typeSel.value; save(); renderStage(); renderThumbs(); });
   $('btnPresent').addEventListener('click', startPresent);
-  $('btnEdit').addEventListener('click', () => { if (mode === 'present') endPresent(); });
   $('btnDup').addEventListener('click', () => {
     deck.slides.splice(cur + 1, 0, JSON.parse(JSON.stringify(deck.slides[cur])));
     save(); go(cur + 1);
@@ -385,9 +446,9 @@ function buildToolbar() {
   $('btnPanelClose').addEventListener('click', () => { $('stickerPanel').hidden = true; });
   $('btnStickerDel').addEventListener('click', deleteSticker);
   $('chkStickerMove').addEventListener('change', e => {
-    const s = deck.slides[cur].stickers[sel];
+    const keep = sel, s = deck.slides[cur].stickers[keep];
     if (!s) return;
-    s.float = e.target.checked; save(); renderStage(); selectSticker(sel < 0 ? -1 : sel);
+    s.float = e.target.checked; save(); renderStage(); selectSticker(keep);   // renderStage가 선택을 지우므로 먼저 보관
   });
   const grid = $('stickerGrid');
   STICKERS.forEach(st => {
@@ -395,6 +456,9 @@ function buildToolbar() {
     const img = new Image();
     img.src = st.src; img.alt = '';
     img.onerror = () => b.remove();   // 아직 생성되지 않은 스티커는 숨김
+    const label = decodeURIComponent(st.src.split('/').pop()).replace(/\.png$/, '').replace(/^sticker_/, '');
+    b.setAttribute('aria-label', `스티커 추가: ${label}`);
+    b.title = label;
     b.appendChild(img);
     b.addEventListener('click', () => addSticker(st.src, st.w));
     grid.appendChild(b);
@@ -410,8 +474,16 @@ function buildToolbar() {
   $('fileImport').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
-    try { deck = sanitize(JSON.parse(await f.text())); cur = 0; save(); go(0); }
-    catch (err) { alert('불러오지 못했어요: 올바른 덱 파일이 아닙니다.'); }
+    // 후보 덱을 끝까지 검증하고 렌더링해 본 뒤에만 현재 덱을 바꾼다. 실패하면 기존 덱을 그대로 둔다.
+    const prev = deck, prevCur = cur;
+    try {
+      const next = sanitize(JSON.parse(await f.text()));
+      next.slides.forEach(s => slideHTML(s, { editable: false, animate: false }));
+      deck = next; cur = 0; save(); go(0, true);
+    } catch (err) {
+      deck = prev; cur = prevCur;
+      alert('불러오지 못했어요. 올바른 덱 파일이 아니에요. (' + err.message + ')\n지금 편집 중인 덱은 그대로 두었어요.');
+    }
   });
   $('btnReset').addEventListener('click', () => {
     if (!confirm('모든 편집 내용을 지우고 처음 상태로 되돌릴까요?')) return;
@@ -420,7 +492,9 @@ function buildToolbar() {
 }
 
 window.addEventListener('resize', fit);
+deck = loadDeck();
 buildToolbar();
+if (loadWarning) setStatus(loadWarning);
 // 해시로 시작 위치 지정: #s=3 (슬라이드 번호), #s=3&view (전체 화면 없이 발표 화면으로 열기)
 const hash = new URLSearchParams(location.hash.slice(1));
 go(Math.max(0, (parseInt(hash.get('s'), 10) || 1) - 1));
