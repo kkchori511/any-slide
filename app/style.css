@@ -1,3 +1,10 @@
+/* 페이퍼로지 (SIL OFL 1.1, fonts/OFL-Paperlogy.txt). 오프라인 발표를 위해 앱에 포함 */
+@font-face { font-family: 'Paperlogy'; src: url('fonts/Paperlogy-4Regular.woff2') format('woff2'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Paperlogy'; src: url('fonts/Paperlogy-5Medium.woff2') format('woff2'); font-weight: 500; font-display: block; }
+@font-face { font-family: 'Paperlogy'; src: url('fonts/Paperlogy-6SemiBold.woff2') format('woff2'); font-weight: 600; font-display: block; }
+@font-face { font-family: 'Paperlogy'; src: url('fonts/Paperlogy-7Bold.woff2') format('woff2'); font-weight: 700; font-display: block; }
+@font-face { font-family: 'Paperlogy'; src: url('fonts/Paperlogy-8ExtraBold.woff2') format('woff2'); font-weight: 800; font-display: block; }
+
 :root {
   --ink: #3a3633;
   --ink-sub: #8a8179;
@@ -5,7 +12,7 @@
   --ui-bg: #efe9de;
   --ui-line: #d9d1c3;
   --ui-accent: #4f6ea8;
-  --font: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  --font: "Paperlogy", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
