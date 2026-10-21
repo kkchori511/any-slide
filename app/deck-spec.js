@@ -16,6 +16,8 @@ const STICKERS = [
   { src: 'assets/generated/sticker_화살표.png', w: 260, name: '화살표' },
   { src: 'assets/generated/sticker_하트.png', w: 220, name: '하트' },
   { src: 'assets/generated/sticker_말풍선.png', w: 320, name: '말풍선' },
+  { src: 'assets/generated/sticker_API점원.png', w: 360, name: 'API 점원 로봇' },
+  { src: 'assets/generated/sticker_여행.png', w: 320, name: '지도와 여행 가방' },
   { src: 'assets/face.png', w: 220, name: '캐릭터 얼굴' },
   { src: 'assets/hero-props.png', w: 520, name: '캐릭터와 소품' },
 ];

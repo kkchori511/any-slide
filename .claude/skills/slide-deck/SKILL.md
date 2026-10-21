@@ -152,6 +152,8 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
 | `assets/generated/sticker_화살표.png` | 파란 오른쪽 화살표 | 220~300 |
 | `assets/generated/sticker_하트.png` | 빨간 하트 | 180~240 |
 | `assets/generated/sticker_말풍선.png` | 빈 흰 말풍선 (글자 못 넣음) | 260~360 |
+| `assets/generated/sticker_API점원.png` | 쟁반에 데이터 상자를 내미는 로봇 점원 (API 요청·응답) | 300~420, 그림 칸 |
+| `assets/generated/sticker_여행.png` | 지도와 위치 핀, 여행 가방 (여행·장소 추천) | 260~360 |
 | `assets/face.png` | 캐릭터 얼굴 | 160~260 |
 | `assets/hero-props.png` | 캐릭터와 소품 7종 | 400~600 |
 
