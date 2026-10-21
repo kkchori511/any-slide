@@ -105,7 +105,7 @@ const $ = id => document.getElementById(id);
 const host = $('slideHost'), box = $('stageBox'), wrap = $('stageWrap');
 
 const HINT = '텍스트를 클릭해서 바로 수정 · 스티커는 끌어서 이동, 모서리 점으로 크기 조절 · Delete로 삭제';
-let loadWarning = '';
+let loadWarning = '', brokenRaw = null;
 
 function loadDeck() {
   let raw = null;
@@ -113,23 +113,40 @@ function loadDeck() {
     raw = localStorage.getItem(STORE_KEY);
     if (raw) return sanitize(JSON.parse(raw));
   } catch (e) {
-    // 저장된 내용이 깨졌다면 지우지 않고 복구용으로 따로 보관한다
     if (raw) {
-      try { localStorage.setItem(STORE_KEY + '-broken', raw); } catch (e2) { /* 무시 */ }
-      loadWarning = '⚠ 저장된 덱을 읽지 못해 새 덱으로 열었어요. 이전 내용은 브라우저에 복구용으로 남겨 두었어요.';
+      // 깨진 저장값은 지우지 않고 복구용으로 따로 보관한다. 보관에 실패하면 시작할 때 파일로 내려받게 한다.
+      try {
+        localStorage.setItem(STORE_KEY + '-broken', raw);
+        loadWarning = '⚠ 저장된 덱을 읽지 못해 새 덱으로 열었어요. 이전 내용은 브라우저에 복구용으로 남겨 두었어요.';
+      } catch (e2) {
+        brokenRaw = raw;
+        loadWarning = '⚠ 저장된 덱을 읽지 못해 새 덱으로 열었어요. 복구용 보관에 실패했어요.';
+      }
+    } else {
+      loadWarning = '⚠ 브라우저 저장 공간을 읽지 못해 새 덱으로 열었어요.';
     }
   }
   return defaultDeck();
 }
-const MAX_SLIDES = 300, MAX_STICKERS = 100, MAX_TEXT = 5000;
+
+// 앱이 만들 수 있는 범위와 같아야 한다. 늘리면 addSlide/btnDup/addSticker의 검사도 같이 바뀐다.
+const MAX_SLIDES = 300, MAX_STICKERS = 100;
 const FIELDS = ['title', 'sub', 'name', 'body', 'bubble', 'num'];
 
+// 스티커 이미지는 앱이 아는 파일만 허용한다 (외부 주소, 인코딩된 상위 경로 차단)
+function allowedSrc() {
+  const imgs = Object.values(TYPES).flatMap(t => t.items.filter(i => i.k === 'img').map(i => i.src));
+  return new Set([...STICKERS.map(s => s.src), ...imgs]);
+}
+
 // 허용한 필드만 새 객체로 복사한다. 잘못된 구조는 예외를 던져 호출한 쪽이 기존 덱을 지키게 한다.
+// 내용은 잘라 내지 않는다: 앱에서 만든 덱은 그대로 다시 열 수 있어야 한다.
 function sanitize(d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.slides) || !d.slides.length) {
     throw new Error('슬라이드가 없는 파일입니다.');
   }
-  if (d.slides.length > MAX_SLIDES) throw new Error('슬라이드가 너무 많습니다.');
+  if (d.slides.length > MAX_SLIDES) throw new Error(`슬라이드가 ${MAX_SLIDES}장을 넘습니다.`);
+  const ok = allowedSrc();
   const num = (v, min, max, dflt) => (Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : dflt);
   return {
     bg: Object.hasOwn(BG, d.bg) ? d.bg : 'ivory',
@@ -138,10 +155,11 @@ function sanitize(d) {
     slides: d.slides.map(s => {
       if (!s || typeof s !== 'object' || !Object.hasOwn(TYPES, s.type)) throw new Error('알 수 없는 슬라이드 형태가 있습니다.');
       const out = { type: s.type, stickers: [] };
-      for (const f of FIELDS) if (typeof s[f] === 'string') out[f] = s[f].slice(0, MAX_TEXT);
-      for (const k of (Array.isArray(s.stickers) ? s.stickers : []).slice(0, MAX_STICKERS)) {
-        // 이미지는 앱의 assets 폴더 안 파일만 허용한다 (외부 주소 차단)
-        if (!k || typeof k.src !== 'string' || !/^assets\/[^"'<>\\:]+$/.test(k.src) || k.src.includes('..')) continue;
+      for (const f of FIELDS) if (typeof s[f] === 'string') out[f] = s[f];
+      const list = Array.isArray(s.stickers) ? s.stickers : [];
+      if (list.length > MAX_STICKERS) throw new Error(`한 장의 스티커가 ${MAX_STICKERS}개를 넘습니다.`);
+      for (const k of list) {
+        if (!k || typeof k.src !== 'string' || !ok.has(k.src)) continue;
         const w = num(k.w, 40, W, 220);
         out.stickers.push({ src: k.src, w, x: num(k.x, -w / 2, W - w / 2, 0), y: num(k.y, -w / 2, H - w / 2, 0), float: k.float !== false });
       }
@@ -163,15 +181,28 @@ function flushSave() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(deck));
     dirty = false;
-    setStatus('');
+    if (saveFailed) { saveFailed = false; setStatus(''); updateHud(); }   // 불러오기 경고는 저장 성공으로 지우지 않음
   } catch (e) {
+    saveFailed = true;
     setStatus('⚠ 자동 저장 실패: 브라우저 저장 공간을 쓸 수 없어요. [저장] 버튼으로 파일을 내려받아 두세요.');
+    updateHud();
   }
 }
+let saveFailed = false;
 function setStatus(msg) {
   const el = $('hint');
   el.classList.toggle('warn', !!msg);
   el.textContent = msg || HINT;
+}
+// 발표 중에는 안내줄이 숨으므로 저장 실패를 쪽 번호 옆에 함께 보여 준다
+function updateHud() {
+  $('hud').textContent = `${cur + 1} / ${deck.slides.length}` + (saveFailed ? ' · ⚠ 저장 안 됨' : '');
+}
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 window.addEventListener('pagehide', flushSave);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
@@ -225,21 +256,24 @@ function makeSlide(slide, opts) {
 }
 
 // 글자 칸(data-h)이 정해진 높이를 넘으면 글자 크기를 단계적으로 줄인다(최소 55%).
-// 그래도 넘치면 .over를 붙여 편집 화면에서 알린다. 문서에 붙은 뒤에 불러야 높이를 잴 수 있다.
+// 그래도 넘치면 .over를 붙여 편집 화면에서 알린다. 문서에 붙어 보이는 상태에서 불러야 높이를 잴 수 있다.
+// 높이는 offsetHeight로 잰다: 등장 애니메이션의 transform 영향을 받지 않는다.
 const FIT_MIN = 0.55;
+function fitBox(boxEl) {
+  if (!boxEl.offsetParent) return;   // 숨겨진 요소(발표 중 썸네일 등)는 잴 수 없으니 그대로 둔다
+  const h = +boxEl.dataset.h;
+  const texts = boxEl.classList.contains('t') ? [boxEl] : [...boxEl.querySelectorAll('.t')];
+  texts.forEach(t => { t.style.fontSize = ''; });
+  const base = texts.map(t => parseFloat(getComputedStyle(t).fontSize));
+  let k = 1;
+  while (boxEl.offsetHeight > h + 1 && k > FIT_MIN) {
+    k = Math.max(FIT_MIN, k - 0.05);
+    texts.forEach((t, i) => { t.style.fontSize = base[i] * k + 'px'; });
+  }
+  boxEl.classList.toggle('over', boxEl.offsetHeight > h + 1);
+}
 function fitText(root) {
-  root.querySelectorAll('[data-h]').forEach(boxEl => {
-    const h = +boxEl.dataset.h;
-    const texts = boxEl.classList.contains('t') ? [boxEl] : [...boxEl.querySelectorAll('.t')];
-    texts.forEach(t => { t.style.fontSize = ''; });
-    const base = texts.map(t => parseFloat(getComputedStyle(t).fontSize));
-    let k = 1;
-    while (boxEl.scrollHeight > h + 1 && k > FIT_MIN) {
-      k = Math.max(FIT_MIN, k - 0.05);
-      texts.forEach((t, i) => { t.style.fontSize = base[i] * k + 'px'; });
-    }
-    boxEl.classList.toggle('over', boxEl.scrollHeight > h + 1);
-  });
+  root.querySelectorAll('[data-h]').forEach(fitBox);
 }
 
 function fit() {
@@ -259,7 +293,7 @@ function renderStage() {
   fitText(el);
   fit();
   sel = -1;
-  $('hud').textContent = `${cur + 1} / ${deck.slides.length}`;
+  updateHud();
 }
 
 function renderThumbs() {
@@ -289,11 +323,14 @@ function syncToolbar() {
 
 function go(i, force) {
   const next = Math.max(0, Math.min(deck.slides.length - 1, i));
-  if (next === cur && !force && host.firstElementChild) return;   // 같은 장이면 애니메이션을 다시 돌리지 않음
+  // 같은 장으로 이동하면 애니메이션을 다시 돌리지 않는다. 덱 내용이 바뀐 경우(삭제, 초기화 등)는 force로 부른다.
+  if (next === cur && !force && host.firstElementChild) return;
+  const thumbFocused = document.activeElement && document.activeElement.classList.contains('thumb');
   cur = next;
   renderStage(); renderThumbs(); syncToolbar();
   const a = $('thumbs').children[cur];
   if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest' });
+  if (a && thumbFocused) a.focus();   // 썸네일 목록을 새로 만들어도 키보드 포커스를 이어 준다
 }
 
 /* ===== 편집 ===== */
@@ -302,7 +339,7 @@ host.addEventListener('input', e => {
   if (!f) return;
   deck.slides[cur][f] = e.target.innerText.replace(/\n$/, '');
   const boxEl = e.target.closest('[data-h]');
-  if (boxEl) fitText(boxEl.parentElement);   // 입력 중인 칸만 다시 맞춘다 (커서는 그대로)
+  if (boxEl) fitBox(boxEl);   // 입력 중인 칸만 다시 맞춘다 (커서는 그대로)
   save(); refreshThumb();
 });
 let thumbTimer = 0;
@@ -337,17 +374,21 @@ host.addEventListener('pointerdown', e => {
   const sx = e.clientX, sy = e.clientY, ox = data.x, oy = data.y, ow = data.w;
   st.classList.remove('pop', 'float'); st.style.animation = 'none';
   st.setPointerCapture(e.pointerId);
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const move = ev => {
     const dx = (ev.clientX - sx) / scale, dy = (ev.clientY - sy) / scale;
     if (resizing) {
-      data.w = Math.min(W, Math.max(40, Math.round(ow + dx)));
+      data.w = clamp(Math.round(ow + dx), 40, W);
       st.style.width = data.w + 'px';
     } else {
-      // 최소 절반은 슬라이드 안에 남도록 제한해서 화면 밖으로 잃어버리지 않게 함
-      data.x = Math.min(W - data.w / 2, Math.max(-data.w / 2, Math.round(ox + dx)));
-      data.y = Math.min(H - data.w / 2, Math.max(-data.w / 2, Math.round(oy + dy)));
-      st.style.left = data.x + 'px'; st.style.top = data.y + 'px';
+      data.x = Math.round(ox + dx); data.y = Math.round(oy + dy);
     }
+    // 이동이든 크기 조절이든 가로세로 절반 이상은 슬라이드 안에 남겨서 잃어버리지 않게 한다.
+    // 세로는 실제 그려진 높이(이미지 비율 반영)를 쓴다.
+    const hh = st.offsetHeight || data.w;
+    data.x = clamp(data.x, -Math.round(data.w / 2), W - Math.round(data.w / 2));
+    data.y = clamp(data.y, -Math.round(hh / 2), H - Math.round(hh / 2));
+    st.style.left = data.x + 'px'; st.style.top = data.y + 'px';
   };
   // 손을 떼거나 터치가 취소되거나 캡처를 잃어도 같은 방식으로 마무리한다
   const end = () => {
@@ -365,6 +406,7 @@ host.addEventListener('pointerdown', e => {
 
 function addSticker(src, w) {
   const slide = deck.slides[cur];
+  if (slide.stickers.length >= MAX_STICKERS) { alert(`한 장에는 스티커를 ${MAX_STICKERS}개까지 넣을 수 있어요.`); return; }
   slide.stickers.push({ src, x: Math.round(W / 2 - w / 2), y: Math.round(H / 2 - w / 2), w, float: true });
   save(); renderStage(); renderThumbs();
   selectSticker(slide.stickers.length - 1);
@@ -376,10 +418,15 @@ function deleteSticker() {
 }
 
 /* ===== 슬라이드 조작 ===== */
+function canAddSlide() {
+  if (deck.slides.length < MAX_SLIDES) return true;
+  alert(`슬라이드는 ${MAX_SLIDES}장까지 만들 수 있어요.`);
+  return false;
+}
 function addSlide(type) {
-  const t = type in TYPES ? type : 'body';
-  const s = { type: t, stickers: [] };
-  deck.slides.splice(cur + 1, 0, s);
+  if (!canAddSlide()) return;
+  const t = Object.hasOwn(TYPES, type) ? type : 'body';
+  deck.slides.splice(cur + 1, 0, { type: t, stickers: [] });
   save(); go(cur + 1);
 }
 function moveSlide(dir) {
@@ -397,7 +444,8 @@ function setMode(m) {
   document.body.classList.toggle('edit', m === 'edit');
   document.body.classList.remove('idle');
   renderStage(); syncToolbar();
-  if (m === 'present') kickIdle(); else clearTimeout(idleTimer);
+  if (m === 'present') kickIdle();
+  else { clearTimeout(idleTimer); fitText($('thumbs')); }   // 발표 중 숨어 있던 썸네일은 보일 때 다시 맞춘다
 }
 function kickIdle() {
   document.body.classList.remove('idle');
@@ -460,6 +508,7 @@ function buildToolbar() {
   typeSel.addEventListener('change', () => { deck.slides[cur].type = typeSel.value; save(); renderStage(); renderThumbs(); });
   $('btnPresent').addEventListener('click', startPresent);
   $('btnDup').addEventListener('click', () => {
+    if (!canAddSlide()) return;
     deck.slides.splice(cur + 1, 0, JSON.parse(JSON.stringify(deck.slides[cur])));
     save(); go(cur + 1);
   });
@@ -468,7 +517,7 @@ function buildToolbar() {
   $('btnDel').addEventListener('click', () => {
     if (deck.slides.length === 1) return;
     if (!confirm('이 슬라이드를 삭제할까요?')) return;
-    deck.slides.splice(cur, 1); save(); go(Math.min(cur, deck.slides.length - 1));
+    deck.slides.splice(cur, 1); save(); go(Math.min(cur, deck.slides.length - 1), true);
   });
   $('selBg').addEventListener('change', e => { deck.bg = e.target.value; save(); renderStage(); renderThumbs(); });
   $('inFont').addEventListener('change', e => { deck.font = e.target.value.trim(); save(); renderStage(); renderThumbs(); });
@@ -497,10 +546,7 @@ function buildToolbar() {
   });
 
   $('btnExport').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(deck, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'any-slide-deck.json'; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    download('any-slide-deck.json', JSON.stringify(deck, null, 2));
   });
   $('btnImport').addEventListener('click', () => $('fileImport').click());
   $('fileImport').addEventListener('change', async e => {
@@ -519,7 +565,7 @@ function buildToolbar() {
   });
   $('btnReset').addEventListener('click', () => {
     if (!confirm('모든 편집 내용을 지우고 처음 상태로 되돌릴까요?')) return;
-    deck = defaultDeck(); cur = 0; save(); go(0);
+    deck = defaultDeck(); cur = 0; save(); go(0, true);
   });
 }
 
@@ -529,6 +575,10 @@ if (document.fonts) document.fonts.addEventListener('loadingdone', () => { fitTe
 deck = loadDeck();
 buildToolbar();
 if (loadWarning) setStatus(loadWarning);
+// 깨진 저장값을 브라우저에 따로 보관하지 못했다면, 덮어쓰기 전에 파일로 받을 기회를 준다
+if (brokenRaw && confirm('저장된 덱을 읽지 못했고 복구용 보관에도 실패했어요.\n편집을 시작하면 덮어써지니, 원본을 파일로 내려받을까요?')) {
+  download('any-slide-broken-backup.json', brokenRaw);
+}
 // 해시로 시작 위치 지정: #s=3 (슬라이드 번호), #s=3&view (전체 화면 없이 발표 화면으로 열기)
 const hash = new URLSearchParams(location.hash.slice(1));
 go(Math.max(0, (parseInt(hash.get('s'), 10) || 1) - 1));
