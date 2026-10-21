@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Any Slide</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="edit">
+<header id="toolbar">
+  <div class="group">
+    <button id="btnPresent" class="primary" title="발표 시작 (F)">▶ 발표</button>
+    <button id="btnEdit" title="편집 모드 켜기/끄기 (E)">편집 모드</button>
+  </div>
+  <div class="group">
+    <select id="selAdd" title="새 슬라이드 추가"><option value="">＋ 슬라이드 추가</option></select>
+    <select id="selType" title="현재 슬라이드의 형태"></select>
+    <button id="btnDup" title="복제">복제</button>
+    <button id="btnUp" title="앞으로">↑</button>
+    <button id="btnDown" title="뒤로">↓</button>
+    <button id="btnDel" title="삭제" class="danger">삭제</button>
+  </div>
+  <div class="group">
+    <select id="selBg" title="배경">
+      <option value="ivory">배경: 아이보리</option>
+      <option value="sage">배경: 세이지</option>
+      <option value="bluegray">배경: 블루그레이</option>
+    </select>
+    <input id="inFont" type="text" placeholder="글꼴 이름 (기본: 시스템)" title="CSS font-family. 컴퓨터에 설치된 글꼴 이름을 입력">
+    <label class="check"><input id="chkAnim" type="checkbox" checked> 애니메이션</label>
+  </div>
+  <div class="group">
+    <button id="btnSticker" title="스티커 추가">스티커</button>
+    <button id="btnExport" title="덱을 JSON 파일로 저장">저장</button>
+    <button id="btnImport" title="JSON 파일 불러오기">불러오기</button>
+    <button id="btnReset" class="danger" title="처음 상태로">초기화</button>
+  </div>
+</header>
+
+<aside id="thumbs" aria-label="슬라이드 목록"></aside>
+
+<main id="stageWrap">
+  <div id="stageBox"><div id="slideHost"></div></div>
+  <div id="hint">텍스트를 클릭해서 바로 수정 · 스티커는 끌어서 이동, 모서리 점으로 크기 조절 · Delete로 삭제</div>
+</main>
+
+<div id="stickerPanel" hidden>
+  <div class="panel-title">스티커 <button id="btnPanelClose" aria-label="닫기">✕</button></div>
+  <div id="stickerGrid"></div>
+  <div class="panel-actions">
+    <label class="check"><input id="chkStickerMove" type="checkbox" checked> 선택한 스티커 둥실둥실</label>
+    <button id="btnStickerDel" class="danger">선택한 스티커 삭제</button>
+  </div>
+</div>
+
+<div id="hud" aria-hidden="true"></div>
+<input id="fileImport" type="file" accept="application/json,.json" hidden>
+<script src="app.js"></script>
+</body>
+</html>
