@@ -77,6 +77,9 @@ input[type=text] { width: 190px; }
 .t.num      { font-size: 150px; font-weight: 600; line-height: 1.1; color: var(--ink-num); }
 .t.bubble   { font-size: 44px; line-height: 1.5; }
 
+.stack { display: flex; flex-direction: column; }
+.stack > .t { position: relative; }
+.edit .over { outline: 3px dashed #b0443a; outline-offset: 6px; border-radius: 8px; }
 .edit .t[contenteditable] { cursor: text; border-radius: 8px; }
 .edit .t[contenteditable]:hover { background: rgba(79,110,168,.08); box-shadow: 0 0 0 2px rgba(79,110,168,.25); }
 .edit .t[contenteditable]:focus { background: rgba(79,110,168,.10); box-shadow: 0 0 0 3px rgba(79,110,168,.45); }

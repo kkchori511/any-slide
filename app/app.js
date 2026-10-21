@@ -18,59 +18,63 @@ const STICKERS = [
 ];
 
 /* ===== 슬라이드 형태 (좌표는 1920x1080 기준) ===== */
-// text: field, cls, x, y, w / img: src, x, y, w, anim / bubble: 말풍선 도형
+// text: field, cls, x, y, w, h(최대 높이) / stack: 위아래로 이어지는 글자 묶음 / img: src, x, y, w, anim / bubble: 말풍선 도형
+// 글자가 h를 넘으면 fitText()가 글자 크기를 줄인다.
 const TYPES = {
   cover: {
     label: '표지',
     items: [
-      { k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 235, w: 800, ph: '발표 제목' },
-      { k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, ph: '한 줄 소개' },
-      { k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, ph: '발표자 이름' },
+      { k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 235, w: 800, h: 290, ph: '발표 제목' },
+      { k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, h: 330, ph: '한 줄 소개' },
+      { k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, h: 120, ph: '발표자 이름' },
       { k: 'img', src: 'assets/hero-props.png', x: 985, y: 195, w: 815, anim: 'pop float' },
     ],
   },
   body: {
     label: '본문',
     items: [
-      { k: 'text', field: 'title', cls: 'title-m', x: 160, y: 114, w: 1600, ph: '슬라이드 제목' },
-      { k: 'text', field: 'body', cls: 'body-l', x: 165, y: 318, w: 1500, ph: '본문 내용' },
-      { k: 'text', field: 'sub', cls: 'body-m', x: 165, y: 452, w: 1500, ph: '보조 설명' },
+      { k: 'text', field: 'title', cls: 'title-m', x: 160, y: 114, w: 1600, h: 180, ph: '슬라이드 제목' },
+      // 본문이 길어지면 보조 설명이 아래로 밀린다
+      { k: 'stack', x: 165, y: 318, w: 1500, h: 540, gap: 68, items: [
+        { field: 'body', cls: 'body-l', ph: '본문 내용' },
+        { field: 'sub', cls: 'body-m', ph: '보조 설명' },
+      ] },
       { k: 'img', src: 'assets/face.png', x: 1690, y: 885, w: 130, anim: 'pop' },
     ],
   },
   explain: {
     label: '설명 (말풍선)',
     items: [
-      { k: 'text', field: 'title', cls: 'title-m', x: 160, y: 114, w: 1600, ph: '슬라이드 제목' },
+      { k: 'text', field: 'title', cls: 'title-m', x: 160, y: 114, w: 1600, h: 180, ph: '슬라이드 제목' },
       { k: 'bubble' },
-      { k: 'text', field: 'bubble', cls: 'bubble', x: 235, y: 410, w: 850, ph: '말풍선 내용', d: 0.5 },
+      { k: 'text', field: 'bubble', cls: 'bubble', x: 235, y: 410, w: 850, h: 240, ph: '말풍선 내용', d: 0.5 },
       { k: 'img', src: 'assets/char-hands.png', x: 1318, y: 410, w: 467, anim: 'rise' },
     ],
   },
   chapterA: {
     label: '챕터 A (캐릭터)',
     items: [
-      { k: 'text', field: 'num', cls: 'num', x: 165, y: 205, w: 500, ph: '01' },
-      { k: 'text', field: 'title', cls: 'title-l', x: 165, y: 478, w: 1200, ph: '챕터 제목' },
-      { k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 652, w: 1100, ph: '이번 장에서 다룰 주제' },
+      { k: 'text', field: 'num', cls: 'num', x: 165, y: 205, w: 500, h: 170, ph: '01' },
+      { k: 'text', field: 'title', cls: 'title-l', x: 165, y: 478, w: 1200, h: 170, ph: '챕터 제목' },
+      { k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 652, w: 1100, h: 330, ph: '이번 장에서 다룰 주제' },
       { k: 'img', src: 'assets/char-hands.png', x: 1465, y: 665, w: 275, anim: 'rise' },
     ],
   },
   chapterB: {
     label: '챕터 B (소품 테두리)',
     items: [
-      { k: 'text', field: 'num', cls: 'num', x: 165, y: 205, w: 500, ph: '01' },
-      { k: 'text', field: 'title', cls: 'title-l', x: 165, y: 448, w: 1000, ph: '챕터 제목' },
-      { k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 622, w: 1000, ph: '이번 장에서 다룰 주제' },
+      { k: 'text', field: 'num', cls: 'num', x: 165, y: 205, w: 500, h: 170, ph: '01' },
+      { k: 'text', field: 'title', cls: 'title-l', x: 165, y: 448, w: 1000, h: 170, ph: '챕터 제목' },
+      { k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 622, w: 1000, h: 360, ph: '이번 장에서 다룰 주제' },
       { k: 'img', src: 'assets/props-corner.png', x: 1180, y: 105, w: 640, anim: 'drop-in' },
     ],
   },
   end: {
     label: '종료',
     items: [
-      { k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 273, w: 800, ph: '감사합니다' },
-      { k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, ph: '마무리 한마디' },
-      { k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, ph: '발표자 이름' },
+      { k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 273, w: 800, h: 260, ph: '감사합니다' },
+      { k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, h: 330, ph: '마무리 한마디' },
+      { k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, h: 120, ph: '발표자 이름' },
       { k: 'img', src: 'assets/hero-props.png', x: 985, y: 195, w: 815, anim: 'pop float' },
     ],
   },
@@ -180,14 +184,19 @@ function esc(s) {
 function slideHTML(slide, { editable, animate }) {
   const type = TYPES[slide.type];
   let n = 0;
+  const ce = editable ? ' contenteditable="plaintext-only" spellcheck="false"' : '';
+  const anim = animate ? 'fade-up' : '';
+  const text = (t, d, pos = '', attrs = '') => `<div class="t ${t.cls} ${anim}" data-field="${t.field}" data-ph="${esc(t.ph)}"${attrs}${ce}
+    style="${pos}--d:${d}s">${esc(slide[t.field])}</div>`;
   const parts = type.items.map(it => {
     const d = it.d ?? (0.1 + n * 0.15);
     if (it.k === 'text') {
       n++;
-      const cls = animate ? 'fade-up' : '';
-      const ce = editable ? ' contenteditable="plaintext-only" spellcheck="false"' : '';
-      return `<div class="t ${it.cls} ${cls}" data-field="${it.field}" data-ph="${esc(it.ph)}"${ce}
-        style="left:${it.x}px;top:${it.y}px;width:${it.w}px;--d:${d}s">${esc(slide[it.field])}</div>`;
+      return text(it, d, `left:${it.x}px;top:${it.y}px;width:${it.w}px;`, ` data-h="${it.h}"`);
+    }
+    if (it.k === 'stack') {
+      const inner = it.items.map(t => text(t, 0.1 + (n++) * 0.15)).join('');
+      return `<div class="stack" data-h="${it.h}" style="left:${it.x}px;top:${it.y}px;width:${it.w}px;gap:${it.gap}px">${inner}</div>`;
     }
     if (it.k === 'img') {
       return `<img class="img ${animate ? it.anim : ''}" src="${it.src}" alt=""
@@ -215,6 +224,24 @@ function makeSlide(slide, opts) {
   return el;
 }
 
+// 글자 칸(data-h)이 정해진 높이를 넘으면 글자 크기를 단계적으로 줄인다(최소 55%).
+// 그래도 넘치면 .over를 붙여 편집 화면에서 알린다. 문서에 붙은 뒤에 불러야 높이를 잴 수 있다.
+const FIT_MIN = 0.55;
+function fitText(root) {
+  root.querySelectorAll('[data-h]').forEach(boxEl => {
+    const h = +boxEl.dataset.h;
+    const texts = boxEl.classList.contains('t') ? [boxEl] : [...boxEl.querySelectorAll('.t')];
+    texts.forEach(t => { t.style.fontSize = ''; });
+    const base = texts.map(t => parseFloat(getComputedStyle(t).fontSize));
+    let k = 1;
+    while (boxEl.scrollHeight > h + 1 && k > FIT_MIN) {
+      k = Math.max(FIT_MIN, k - 0.05);
+      texts.forEach((t, i) => { t.style.fontSize = base[i] * k + 'px'; });
+    }
+    boxEl.classList.toggle('over', boxEl.scrollHeight > h + 1);
+  });
+}
+
 function fit() {
   const r = wrap.getBoundingClientRect();
   const pad = mode === 'present' ? 0 : 36;
@@ -229,6 +256,7 @@ function renderStage() {
   const el = makeSlide(deck.slides[cur], { editable: mode === 'edit', animate: deck.anim, enter: true });
   host.replaceChildren(el);
   el.style.transform = `scale(${scale})`;
+  fitText(el);
   fit();
   sel = -1;
   $('hud').textContent = `${cur + 1} / ${deck.slides.length}`;
@@ -249,6 +277,7 @@ function renderThumbs() {
     t.addEventListener('click', () => go(i));
     return t;
   }));
+  fitText(list);
 }
 
 function syncToolbar() {
@@ -272,6 +301,8 @@ host.addEventListener('input', e => {
   const f = e.target.dataset && e.target.dataset.field;
   if (!f) return;
   deck.slides[cur][f] = e.target.innerText.replace(/\n$/, '');
+  const boxEl = e.target.closest('[data-h]');
+  if (boxEl) fitText(boxEl.parentElement);   // 입력 중인 칸만 다시 맞춘다 (커서는 그대로)
   save(); refreshThumb();
 });
 let thumbTimer = 0;
@@ -283,6 +314,7 @@ function refreshThumb() {
     const inner = makeSlide(deck.slides[cur], { editable: false, animate: false });
     inner.classList.remove('enter');
     t.querySelector('.box').replaceChildren(inner);
+    fitText(inner);
   }, 250);
 }
 
@@ -492,6 +524,8 @@ function buildToolbar() {
 }
 
 window.addEventListener('resize', fit);
+// 글꼴이 늦게 로드되면 글자 높이가 바뀌므로 다시 맞춘다
+if (document.fonts) document.fonts.addEventListener('loadingdone', () => { fitText(host); fitText($('thumbs')); });
 deck = loadDeck();
 buildToolbar();
 if (loadWarning) setStatus(loadWarning);
