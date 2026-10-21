@@ -274,8 +274,10 @@ function parseTable(s) {
   const cols = Math.max(1, ...rows.map(r => r.length));
   return rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ''));
 }
+// 칸 안의 |는 구분자가 아니도록 \| 로 감싼다. 앞의 \ 개수가 홀수면 이미 감싼 것이고, 짝수(\\ 는 \ 글자)면 감싸야 한다.
 function tableToString(rows) {
-  return rows.map(r => r.map(c => c.replace(/(?<!\\)\|/g, '\\|')).join(' | ')).join('\n');
+  const escCell = c => c.replace(/(\\*)\|/g, (m, bs) => (bs.length % 2 ? m : bs + '\\|'));
+  return rows.map(r => r.map(escCell).join(' | ')).join('\n');
 }
 
 /* ===== 기본 덱 (모든 형태 예시) ===== */

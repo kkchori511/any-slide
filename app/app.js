@@ -95,21 +95,34 @@ function runsToHTML(runs) {
     return h;
   }).join('');
 }
-// 끝이 줄바꿈이면 빈 줄이 보이도록 <br>을 하나 더 둔다 (아래 domItems의 "마지막 <br>" 규칙과 짝)
+// 글이 줄바꿈으로 끝나면 빈 줄이 보이도록 <br>을 하나 더 둔다 (아래 domItems의 "블록의 마지막 <br>은 자리 채움" 규칙과 짝).
+// 판단은 표기 원문이 아니라 실제 글자로 한다: **A\n** 처럼 서식 안의 끝 줄바꿈도 같다.
 function markupToHTML(s) {
+  const runs = parseMarkup(String(s ?? ''));
+  const text = runs.map(r => r.text).join('');
+  return runsToHTML(runs) + (text.endsWith('\n') ? '<br>' : '');
+}
+function plainToHTML(s) {
   const str = String(s ?? '');
-  return runsToHTML(parseMarkup(str)) + (str.endsWith('\n') ? '<br>' : '');
+  return esc(str).replace(/\n/g, '<br>') + (str.endsWith('\n') ? '<br>' : '');
 }
 
 // 편집 중인 칸의 DOM을 글자 조각 목록으로 읽는다. 브라우저가 Enter로 만든 <div>, <br>도 줄바꿈으로 친다.
 const BLOCK = /^(DIV|P|LI|H[1-6])$/;
 function domItems(root) {
   const items = [];
+  // 블록(<div> 등)이 끝난 뒤 글이 이어지면 그 사이도 줄바꿈이다. 다음 글자가 올 때 넣는다.
+  let afterBlock = null;
+  const push = it => {
+    if (afterBlock && items.length) items.push({ node: afterBlock, text: '\n', st: it.st, block: it.block });
+    afterBlock = null;
+    items.push(it);
+  };
   const walk = (node, st, block) => {
     for (const ch of node.childNodes) {
-      if (ch.nodeType === 3) { if (ch.data) items.push({ node: ch, text: ch.data, st, block }); continue; }
+      if (ch.nodeType === 3) { if (ch.data) push({ node: ch, text: ch.data, st, block }); continue; }
       if (ch.nodeType !== 1) continue;
-      if (ch.tagName === 'BR') { items.push({ node: ch, text: '\n', st, block, br: true }); continue; }
+      if (ch.tagName === 'BR') { push({ node: ch, text: '\n', st, block, br: true }); continue; }
       let s2 = st;
       if (ch.tagName === 'B' || ch.tagName === 'STRONG') s2 = { ...s2, b: true };
       else if (ch.tagName === 'U') s2 = { ...s2, u: true };
@@ -118,7 +131,9 @@ function domItems(root) {
       if (cm && Object.hasOwn(PALETTE, cm[1])) s2 = { ...s2, c: cm[1] };
       if (BLOCK.test(ch.tagName)) {
         if (items.length) items.push({ node: ch, text: '\n', st, block });   // 블록 앞은 줄바꿈
+        afterBlock = null;
         walk(ch, s2, ch);
+        afterBlock = ch;
       } else walk(ch, s2, block);
     }
   };
@@ -221,9 +236,10 @@ function slideHTML(slide, { editable, animate }) {
   const text = (t, pos = '', fit = null) => {
     const plain = !!t.plain || PLAIN_FIELDS.has(t.field);
     const v = slide[t.field] ?? '';
-    const attrs = (fit ? ` data-h="${fit.h}"` + (fit.grow ? ` data-grow="${fit.grow}"` : '') : '') + (plain ? ' data-plain="1"' : '');
+    const attrs = (fit ? ` data-h="${fit.h}"` + (fit.grow ? ` data-grow="${fit.grow}"` : '') : '') + (plain ? ' data-plain="1"' : '')
+      + (t.align ? ` data-align0="${t.align}"` : '');   // 형태의 기본 정렬 (도구 줄 표시와 되돌리기에 쓴다)
     return `<div class="t ${t.cls} ${fx.text}" data-field="${t.field}" data-ph="${esc(t.ph || '')}"${attrs}${ceAttr(plain)}`
-      + ` style="${pos}--d:${nextD()}s;${boxStyle(t.field, t.align)}">${plain ? esc(v) : markupToHTML(v)}</div>`;
+      + ` style="${pos}--d:${nextD()}s;${boxStyle(t.field, t.align)}">${plain ? plainToHTML(v) : markupToHTML(v)}</div>`;
   };
   const at = it => `left:${it.x}px;top:${it.y}px;width:${it.w}px;`;
   const rect = it => `${at(it)}height:${it.h}px;`;
@@ -439,7 +455,7 @@ function readTable(tableEl) {
 function commitText(el) {
   const slide = deck.slides[cur];
   if (el.dataset.cell) slide.table = readTable(el.closest('.table'));
-  else if (el.dataset.plain) slide[el.dataset.field] = el.innerText.replace(/\n$/, '');
+  else if (el.dataset.plain) slide[el.dataset.field] = domItems(el).map(i => i.text).join('');   // 서식 칸과 같은 줄바꿈 규칙
   else slide[el.dataset.field] = elToMarkup(el);
   if (!el.textContent && el.innerHTML) el.innerHTML = '';   // 비우면 안내 문구가 다시 보이게
   const boxEl = el.closest('[data-h]');
@@ -461,25 +477,51 @@ host.addEventListener('paste', e => {
 host.addEventListener('focusin', e => {
   const t = e.target.closest && e.target.closest('.t[contenteditable]');
   if (!t) return;
+  if (t !== activeText) lastRange = null;
   activeText = t;
   if (sel >= 0) selectSticker(-1, true);
   renderCtx();
 });
-host.addEventListener('focusout', () => {
+// 편집 칸에서 도구 줄로 포커스가 옮겨 가면(Tab 등) 편집 중인 칸을 그대로 둔다. 둘 다 벗어났을 때만 해제한다.
+function leaveTextIfOutside() {
   setTimeout(() => {
-    if (activeText && document.activeElement !== activeText) { activeText = null; renderCtx(); }
+    const a = document.activeElement;
+    if (activeText && a !== activeText && !$('ctxbar').contains(a)) { activeText = null; lastRange = null; renderCtx(); }
   }, 0);
+}
+host.addEventListener('focusout', leaveTextIfOutside);
+$('ctxbar').addEventListener('focusout', leaveTextIfOutside);
+// 편집 칸에서 마지막으로 고른 범위. 도구 버튼에 포커스가 가서 선택이 풀려도 같은 글자에 서식을 적용한다.
+let lastRange = null;
+document.addEventListener('selectionchange', () => {
+  if (!activeText) return;
+  const r = selectionOffsets(activeText, domItems(activeText));
+  if (r) lastRange = { el: activeText, r };
 });
+function savedRange(el) { return lastRange && lastRange.el === el ? lastRange.r : null; }
+
+// 👨‍👩‍👧 처럼 여러 글자로 된 이모지가 중간에서 갈라지지 않게 선택 범위를 글자 경계로 넓힌다
+function snapToGraphemes(text, s, e) {
+  if (typeof Intl === 'undefined' || !Intl.Segmenter) return [s, e];
+  let a = 0, b = text.length;
+  for (const { index, segment } of new Intl.Segmenter('ko', { granularity: 'grapheme' }).segment(text)) {
+    if (index <= s) a = index;
+    if (index < e && index + segment.length >= e) { b = index + segment.length; break; }
+  }
+  return [a, Math.max(a, b)];
+}
 
 // 선택한 글자(없으면 칸 전체)에 서식을 켜고 끈다. op: 'b' | 'u' | 'm' | { color }
 function applyFormat(el, op) {
   if (!el || !isRich(el)) return;
   const items = domItems(el);
-  let [s, e] = selectionOffsets(el, items) || [0, 0];
+  let [s, e] = selectionOffsets(el, items) || savedRange(el) || [0, 0];
   if (s === e) { s = 0; e = items.total; }
   if (s > e) [s, e] = [e, s];
+  // 위치는 선택(DOM)과 같은 단위(UTF-16)로 센다. 이모지 하나가 2칸이어도 어긋나지 않는다.
   const chars = [];
-  for (const it of items) for (const ch of it.text) chars.push({ ch, ...it.st });
+  for (const it of items) for (let i = 0; i < it.text.length; i++) chars.push({ ch: it.text[i], ...it.st });
+  [s, e] = snapToGraphemes(chars.map(c => c.ch).join(''), s, e);
   const range = chars.slice(s, e).filter(c => c.ch !== '\n');
   if (!range.length) return;
   if (typeof op === 'string') {
@@ -512,12 +554,13 @@ function setBoxStyle(el, key, value) {
   const targets = el.dataset.cell ? [...el.closest('.table').querySelectorAll('[data-cell]')] : [el];
   for (const t of targets) {
     t.style.setProperty('--k', st.scale || 1);
-    t.style.textAlign = st.align || '';
+    t.style.textAlign = st.align || t.dataset.align0 || '';   // 지우면 형태의 기본 정렬로
     t.style.lineHeight = st.lh || '';
   }
   const boxEl = el.closest('[data-h]');
   if (boxEl) fitBox(boxEl);
   save(); refreshThumb();
+  renderCtx();   // 크기 %와 정렬·줄 간격 선택 표시를 바로 갱신
 }
 function boxStyleOf(el) {
   const s = deck.slides[cur].styles;
@@ -545,7 +588,7 @@ host.addEventListener('pointerdown', e => {
   const st = e.target.closest('.sticker');
   if (!st) { if (sel >= 0) selectSticker(-1); return; }
   e.preventDefault();
-  if (document.activeElement && host.contains(document.activeElement)) document.activeElement.blur();
+  releaseFocus();
   const i = +st.dataset.i, data = deck.slides[cur].stickers[i];
   selectSticker(i);
   const h = e.target.closest('.h');
@@ -581,7 +624,13 @@ host.addEventListener('pointerdown', e => {
   for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) st.addEventListener(t, end);
 });
 
+// 스티커를 고르거나 추가하면 버튼·글자 칸에 남은 포커스를 풀어서 화살표·Delete가 스티커에 가게 한다
+function releaseFocus() {
+  const a = document.activeElement;
+  if (a && a !== document.body) a.blur();
+}
 function addSticker(src, w) {
+  releaseFocus();
   const slide = deck.slides[cur];
   if (slide.stickers.length >= MAX_STICKERS) { alert(`한 장에는 스티커를 ${MAX_STICKERS}개까지 넣을 수 있어요.`); return; }
   slide.stickers.push({ src, x: Math.round(W / 2 - w / 2), y: Math.round(H / 2 - w / 2), w, rot: 0, flip: false, float: true });
@@ -651,6 +700,7 @@ function tableOp(kind, at) {
 function ctxButton(label, title, fn, cls = '') {
   const b = document.createElement('button');
   b.type = 'button'; b.textContent = label; b.title = title; if (cls) b.className = cls;
+  b.dataset.key = title;   // 도구 줄을 다시 그린 뒤 키보드 포커스를 같은 버튼으로 되돌리는 데 쓴다
   b.addEventListener('pointerdown', e => e.preventDefault());   // 글자 칸의 선택과 포커스를 지킨다
   b.addEventListener('click', fn);
   return b;
@@ -664,8 +714,15 @@ function ctxGroup(label, ...nodes) {
 }
 function renderCtx() {
   const bar = $('ctxbar');
+  const focusKey = bar.contains(document.activeElement) ? document.activeElement.dataset.key : null;
   bar.replaceChildren();
-  if (mode !== 'edit') return;
+  if (mode === 'edit') buildCtx(bar);
+  if (focusKey) {
+    const b = [...bar.querySelectorAll('button')].find(x => x.dataset.key === focusKey);
+    if (b) b.focus();
+  }
+}
+function buildCtx(bar) {
   const slide = deck.slides[cur];
 
   if (activeText && document.contains(activeText)) {
@@ -684,14 +741,21 @@ function renderCtx() {
         ctxGroup('색', ctxButton('', '기본 색', () => applyFormat(el, { color: null }), 'swatch none'), ...swatches),
       );
     }
-    const k = st.scale || 1;
+    // 크기는 누를 때마다 현재 값을 읽는다 (연속으로 눌러도 한 단계씩)
+    const step = d => () => {
+      const k = (boxStyleOf(el).scale || 1) + d;
+      setBoxStyle(el, 'scale', Math.min(2, Math.max(0.5, Math.round(k * 100) / 100)));
+    };
+    // 정렬: 형태의 기본 정렬과 같으면 기본으로(null), 다르면 그 값을 저장한다. 가운데가 기본인 칸의 왼쪽도 저장된다.
+    const align0 = el.dataset.align0 || 'left';
+    const alignNow = st.align || align0;
     bar.append(
       ctxGroup('크기',
-        ctxButton('A−', '글자 작게', () => setBoxStyle(el, 'scale', Math.max(0.5, Math.round((k - 0.1) * 100) / 100))),
-        ctxButton(`${Math.round(k * 100)}%`, '기본 크기로', () => setBoxStyle(el, 'scale', null)),
-        ctxButton('A+', '글자 크게', () => setBoxStyle(el, 'scale', Math.min(2, Math.round((k + 0.1) * 100) / 100)))),
+        ctxButton('A−', '글자 작게', step(-0.1)),
+        ctxButton(`${Math.round((st.scale || 1) * 100)}%`, '기본 크기로', () => setBoxStyle(el, 'scale', null)),
+        ctxButton('A+', '글자 크게', step(0.1))),
       ctxGroup('정렬', ...[['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽']].map(([a, l]) =>
-        ctxButton(l, `${l} 정렬`, () => setBoxStyle(el, 'align', a === 'left' ? null : a), (st.align || 'left') === a ? 'on' : ''))),
+        ctxButton(l, `${l} 정렬`, () => setBoxStyle(el, 'align', a === align0 ? null : a), alignNow === a ? 'on' : ''))),
       ctxGroup('줄 간격', ...[[1.2, '좁게'], [null, '보통'], [1.9, '넓게']].map(([v, l]) =>
         ctxButton(l, `줄 간격 ${l}`, () => setBoxStyle(el, 'lh', v), (st.lh || null) === v ? 'on' : ''))),
     );
