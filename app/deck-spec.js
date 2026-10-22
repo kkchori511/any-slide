@@ -1,25 +1,28 @@
 'use strict';
-// 덱 규칙: 슬라이드 형태, 허용 스티커, 덱 설정, 글자 서식 표기, 기본 덱, 덱 검증(sanitize).
+// 덱 규칙: 슬라이드 형태(개체 목록), 허용 스티커, 덱 설정, 글자 서식 표기, 기본 덱, 덱 검증(sanitize).
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
+
+const APP_VERSION = '1.2.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
 const BG = { ivory: 'assets/bg-ivory.png', sage: 'assets/bg-sage.png', bluegray: 'assets/bg-bluegray.png' };
 const BG_LABELS = { ivory: '아이보리', sage: '세이지', bluegray: '블루그레이' };
 
-// 스티커 목록: 기존 소품 + Codex가 생성한 스티커 (파일이 없으면 패널에서 자동으로 숨김)
+// 스티커 목록. group: basic(기본 8개) / extra(덱을 만들며 새로 생성한 그림을 하나씩 추가)
+const STICKER_GROUPS = { basic: '기본', extra: '추가' };
 const STICKERS = [
-  { src: 'assets/generated/sticker_반짝이.png', w: 220, name: '반짝이' },
-  { src: 'assets/generated/sticker_별.png', w: 220, name: '별' },
-  { src: 'assets/generated/sticker_체크.png', w: 220, name: '체크' },
-  { src: 'assets/generated/sticker_화살표.png', w: 260, name: '화살표' },
-  { src: 'assets/generated/sticker_하트.png', w: 220, name: '하트' },
-  { src: 'assets/generated/sticker_말풍선.png', w: 320, name: '말풍선' },
-  { src: 'assets/generated/sticker_API점원.png', w: 360, name: 'API 점원 로봇' },
-  { src: 'assets/generated/sticker_여행.png', w: 320, name: '지도와 여행 가방' },
-  { src: 'assets/face.png', w: 220, name: '캐릭터 얼굴' },
-  { src: 'assets/hero-props.png', w: 520, name: '캐릭터와 소품' },
+  { src: 'assets/generated/sticker_반짝이.png', w: 220, name: '반짝이', group: 'basic' },
+  { src: 'assets/generated/sticker_별.png', w: 220, name: '별', group: 'basic' },
+  { src: 'assets/generated/sticker_체크.png', w: 220, name: '체크', group: 'basic' },
+  { src: 'assets/generated/sticker_화살표.png', w: 260, name: '화살표', group: 'basic' },
+  { src: 'assets/generated/sticker_하트.png', w: 220, name: '하트', group: 'basic' },
+  { src: 'assets/generated/sticker_말풍선.png', w: 320, name: '말풍선', group: 'basic' },
+  { src: 'assets/face.png', w: 220, name: '캐릭터 얼굴', group: 'basic' },
+  { src: 'assets/hero-props.png', w: 520, name: '캐릭터와 소품', group: 'basic' },
+  { src: 'assets/generated/sticker_API점원.png', w: 360, name: 'API 점원 로봇', group: 'extra' },
+  { src: 'assets/generated/sticker_여행.png', w: 320, name: '지도와 여행 가방', group: 'extra' },
 ];
 
 // 글자 색 (핵심 브리프의 소품 색에서 고름). 덱 파일에는 이름으로 저장한다.
@@ -36,96 +39,92 @@ const TRANSITIONS = { none: '없음', fade: '페이드', slide: '밀기', zoom: 
 const TEXT_ANIMS = { fly: '날아오기', fade: '페이드만', none: '없음' };
 const DEFAULT_SETTINGS = { transition: 'fade', duration: 0.5, textAnim: 'fly', imgAnim: true, float: true };
 
-/* ===== 슬라이드 형태 (좌표는 1920x1080 기준) =====
-   text  : field, cls, x, y, w, h(최대 높이), grow(글이 적을 때 키울 최대 배율), align, plain(서식 없음)
-   stack : 위아래로 이어지는 글자 묶음. center면 높이 h 안에서 세로 가운데
-   img   : 고정 그림 / bubble : 말풍선 도형 / panel : 바탕 상자 / deco : 장식 글자
-   cards, steps : 개수(count)에 따라 칸이 바뀌는 묶음 (필드 c1t, c1 … / s1t, s1 …)
-   table : 표 (필드 table, 줄은 \n, 칸은 |) / slot : 그림 칸 (필드 img)
-   글자가 h를 넘으면 앱이 글자 크기를 줄이고, grow가 있으면 남을 때 키운다. */
-const TITLE = { k: 'text', field: 'title', cls: 'title-m', x: 160, y: 114, w: 1600, h: 160, ph: '슬라이드 제목' };
+/* ===== 슬라이드 형태: 개체 목록 (좌표는 1920x1080 기준) =====
+   모든 개체는 id가 있고, 장마다 slide.layout[id] = { x, y, w, h, rot, hidden } 으로 위치·크기·회전·숨김을 바꿀 수 있다.
+   text    : 글자 상자 하나 (field, cls, h는 칸 높이: 넘치면 글자를 줄이고 grow가 있으면 남을 때 키운다)
+   stack   : 위아래로 이어지는 글자 묶음 (center면 세로 가운데)
+   img     : 그림 (높이는 그림 비율대로) / deco : 장식 글자
+   bubble  : 말풍선 도형 + 안의 글자 / codebox : 어두운 상자 + 코드 글자
+   card    : 바탕 상자 + 제목 + 내용 (variant: cards / steps / compare)
+   group   : 개수(count)에 따라 카드 개체 c1… 또는 단계 개체 s1…(+ 화살표 a1…)로 펼쳐진다
+   table   : 표 (field table, 줄은 \n, 칸은 |) / slot : 그림 칸 (field img) */
+const TITLE = { id: 'title', k: 'text', field: 'title', cls: 'title-m', x: 160, y: 114, w: 1600, h: 160, ph: '슬라이드 제목' };
 
 const TYPES = {
   cover: {
     label: '표지',
-    items: [
-      { k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 235, w: 800, h: 290, ph: '발표 제목' },
-      { k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, h: 330, ph: '한 줄 소개' },
-      { k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, h: 120, ph: '발표자 이름' },
-      { k: 'img', src: 'assets/hero-props.png', x: 985, y: 195, w: 815, anim: 'pop float' },
+    objects: [
+      { id: 'title', k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 235, w: 800, h: 290, ph: '발표 제목' },
+      { id: 'sub', k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, h: 330, ph: '한 줄 소개' },
+      { id: 'name', k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, h: 120, ph: '발표자 이름' },
+      { id: 'hero', k: 'img', src: 'assets/hero-props.png', x: 985, y: 195, w: 815, anim: 'pop float' },
     ],
   },
   body: {
     label: '본문',
-    items: [
+    objects: [
       TITLE,
       // 본문이 길어지면 보조 설명이 아래로 밀리고, 짧으면 글자를 키워 채운다
-      { k: 'stack', x: 165, y: 318, w: 1500, h: 560, gap: 60, grow: 1.5, items: [
+      { id: 'main', k: 'stack', x: 165, y: 318, w: 1500, h: 560, gap: 60, grow: 1.5, items: [
         { field: 'body', cls: 'body-l', ph: '본문 내용' },
         { field: 'sub', cls: 'body-m', ph: '보조 설명' },
       ] },
-      { k: 'img', src: 'assets/face.png', x: 1690, y: 885, w: 130, anim: 'pop' },
+      { id: 'face', k: 'img', src: 'assets/face.png', x: 1690, y: 885, w: 130, anim: 'pop' },
     ],
   },
   explain: {
     label: '설명 (말풍선)',
-    items: [
+    objects: [
       TITLE,
-      { k: 'bubble' },
-      { k: 'text', field: 'bubble', cls: 'bubble', x: 235, y: 380, w: 850, h: 270, grow: 1.3, ph: '말풍선 내용', d: 0.5 },
-      { k: 'img', src: 'assets/char-hands.png', x: 1318, y: 410, w: 467, anim: 'rise' },
+      { id: 'bubble', k: 'bubble', field: 'bubble', x: 150, y: 315, w: 1140, h: 375, grow: 1.3, ph: '말풍선 내용' },
+      { id: 'char', k: 'img', src: 'assets/char-hands.png', x: 1318, y: 410, w: 467, anim: 'rise' },
     ],
   },
   compare: {
     label: '2단 비교',
-    items: [
+    objects: [
       TITLE,
-      { k: 'panel', x: 160, y: 300, w: 770, h: 640 },
-      { k: 'panel', x: 990, y: 300, w: 770, h: 640 },
-      { k: 'text', field: 'leftTitle', cls: 'head acc-blue', x: 210, y: 340, w: 670, h: 130, ph: '왼쪽 제목' },
-      { k: 'text', field: 'left', cls: 'card', x: 210, y: 490, w: 670, h: 410, grow: 1.4, ph: '왼쪽 내용' },
-      { k: 'text', field: 'rightTitle', cls: 'head acc-orange', x: 1040, y: 340, w: 670, h: 130, ph: '오른쪽 제목' },
-      { k: 'text', field: 'right', cls: 'card', x: 1040, y: 490, w: 670, h: 410, grow: 1.4, ph: '오른쪽 내용' },
+      { id: 'L', k: 'card', variant: 'compare', accent: 'blue', x: 160, y: 300, w: 770, h: 640, head: 'leftTitle', body: 'left', headPh: '왼쪽 제목', bodyPh: '왼쪽 내용' },
+      { id: 'R', k: 'card', variant: 'compare', accent: 'orange', x: 990, y: 300, w: 770, h: 640, head: 'rightTitle', body: 'right', headPh: '오른쪽 제목', bodyPh: '오른쪽 내용' },
     ],
   },
   cards: {
     label: '카드 2~4개',
-    items: [TITLE, { k: 'cards', x: 160, y: 300, w: 1600, h: 640, gap: 40, min: 2, max: 4, def: 3 }],
+    objects: [TITLE, { id: 'g', k: 'group', variant: 'cards', x: 160, y: 300, w: 1600, h: 640, gap: 40, min: 2, max: 4, def: 3 }],
   },
   steps: {
     label: '단계 (1→2→3)',
-    items: [TITLE, { k: 'steps', x: 160, y: 300, w: 1600, h: 640, gap: 90, min: 2, max: 4, def: 3 }],
+    objects: [TITLE, { id: 'g', k: 'group', variant: 'steps', x: 160, y: 300, w: 1600, h: 640, gap: 90, min: 2, max: 4, def: 3 }],
   },
   statement: {
     label: '큰 한 문장',
-    items: [
-      { k: 'deco', text: '“', cls: 'qmark', x: 140, y: 120 },
-      { k: 'stack', x: 210, y: 230, w: 1500, h: 640, gap: 70, grow: 1.3, center: true, items: [
+    objects: [
+      { id: 'qmark', k: 'deco', text: '“', cls: 'qmark', x: 140, y: 120, w: 220, h: 300 },
+      { id: 'main', k: 'stack', x: 210, y: 230, w: 1500, h: 640, gap: 70, grow: 1.3, center: true, items: [
         { field: 'quote', cls: 'statement', ph: '강조할 한 문장', align: 'center' },
         { field: 'sub', cls: 'body-m', ph: '덧붙이는 말', align: 'center' },
       ] },
-      { k: 'img', src: 'assets/generated/sticker_반짝이.png', x: 1590, y: 150, w: 190, anim: 'pop float' },
+      { id: 'spark', k: 'img', src: 'assets/generated/sticker_반짝이.png', x: 1590, y: 150, w: 190, anim: 'pop float' },
     ],
   },
   code: {
     label: '코드·주소',
-    items: [
+    objects: [
       TITLE,
-      { k: 'panel', tone: 'dark', x: 160, y: 300, w: 1600, h: 480 },
-      { k: 'text', field: 'code', cls: 'code', plain: true, x: 210, y: 345, w: 1500, h: 390, ph: '코드나 주소' },
-      { k: 'text', field: 'sub', cls: 'body-m', x: 165, y: 820, w: 1500, h: 140, ph: '설명' },
+      { id: 'codebox', k: 'codebox', field: 'code', x: 160, y: 300, w: 1600, h: 480, ph: '코드나 주소' },
+      { id: 'sub', k: 'text', field: 'sub', cls: 'body-m', x: 165, y: 820, w: 1500, h: 140, ph: '설명' },
     ],
   },
   table: {
     label: '표',
-    items: [TITLE, { k: 'table', field: 'table', x: 160, y: 300, w: 1600, h: 640, grow: 1.3 }],
+    objects: [TITLE, { id: 'table', k: 'table', field: 'table', x: 160, y: 300, w: 1600, h: 640, grow: 1.3 }],
   },
   image: {
     label: '그림+설명',
-    items: [
+    objects: [
       TITLE,
-      { k: 'slot', field: 'img', x: 160, y: 300, w: 760, h: 640 },
-      { k: 'stack', x: 990, y: 330, w: 770, h: 580, gap: 50, grow: 1.4, items: [
+      { id: 'slot', k: 'slot', field: 'img', x: 160, y: 300, w: 760, h: 640 },
+      { id: 'main', k: 'stack', x: 990, y: 330, w: 770, h: 580, gap: 50, grow: 1.4, items: [
         { field: 'body', cls: 'body-l', ph: '설명' },
         { field: 'sub', cls: 'body-m', ph: '보조 설명' },
       ] },
@@ -133,64 +132,110 @@ const TYPES = {
   },
   chapterA: {
     label: '챕터 A (캐릭터)',
-    items: [
-      { k: 'text', field: 'num', cls: 'num', plain: true, x: 165, y: 205, w: 500, h: 170, ph: '01' },
-      { k: 'text', field: 'title', cls: 'title-l', x: 165, y: 478, w: 1200, h: 170, ph: '챕터 제목' },
-      { k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 652, w: 1100, h: 330, ph: '이번 장에서 다룰 주제' },
-      { k: 'img', src: 'assets/char-hands.png', x: 1465, y: 665, w: 275, anim: 'rise' },
+    objects: [
+      { id: 'num', k: 'text', field: 'num', cls: 'num', plain: true, x: 165, y: 205, w: 500, h: 170, ph: '01' },
+      { id: 'title', k: 'text', field: 'title', cls: 'title-l', x: 165, y: 478, w: 1200, h: 170, ph: '챕터 제목' },
+      { id: 'sub', k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 652, w: 1100, h: 330, ph: '이번 장에서 다룰 주제' },
+      { id: 'char', k: 'img', src: 'assets/char-hands.png', x: 1465, y: 665, w: 275, anim: 'rise' },
     ],
   },
   chapterB: {
     label: '챕터 B (소품 테두리)',
-    items: [
-      { k: 'text', field: 'num', cls: 'num', plain: true, x: 165, y: 205, w: 500, h: 170, ph: '01' },
-      { k: 'text', field: 'title', cls: 'title-l', x: 165, y: 448, w: 1000, h: 170, ph: '챕터 제목' },
-      { k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 622, w: 1000, h: 360, ph: '이번 장에서 다룰 주제' },
-      { k: 'img', src: 'assets/props-corner.png', x: 1180, y: 105, w: 640, anim: 'drop-in' },
+    objects: [
+      { id: 'num', k: 'text', field: 'num', cls: 'num', plain: true, x: 165, y: 205, w: 500, h: 170, ph: '01' },
+      { id: 'title', k: 'text', field: 'title', cls: 'title-l', x: 165, y: 448, w: 1000, h: 170, ph: '챕터 제목' },
+      { id: 'sub', k: 'text', field: 'sub', cls: 'body-m', x: 170, y: 622, w: 1000, h: 360, ph: '이번 장에서 다룰 주제' },
+      { id: 'props', k: 'img', src: 'assets/props-corner.png', x: 1180, y: 105, w: 640, anim: 'drop-in' },
     ],
   },
   end: {
     label: '종료',
-    items: [
-      { k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 273, w: 800, h: 260, ph: '감사합니다' },
-      { k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, h: 330, ph: '마무리 한마디' },
-      { k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, h: 120, ph: '발표자 이름' },
-      { k: 'img', src: 'assets/hero-props.png', x: 985, y: 195, w: 815, anim: 'pop float' },
+    objects: [
+      { id: 'title', k: 'text', field: 'title', cls: 'title-xl', x: 160, y: 273, w: 800, h: 260, ph: '감사합니다' },
+      { id: 'sub', k: 'text', field: 'sub', cls: 'sub', x: 165, y: 540, w: 760, h: 330, ph: '마무리 한마디' },
+      { id: 'name', k: 'text', field: 'name', cls: 'name', x: 165, y: 905, w: 700, h: 120, ph: '발표자 이름' },
+      { id: 'hero', k: 'img', src: 'assets/hero-props.png', x: 985, y: 195, w: 815, anim: 'pop float' },
     ],
   },
 };
 
-/* ===== 개수가 바뀌는 묶음(cards, steps)의 칸 배치 ===== */
+/* ===== 개체 펼치기와 배치 ===== */
 function groupItem(type) {
-  return TYPES[type].items.find(i => i.k === 'cards' || i.k === 'steps');
+  return TYPES[type].objects.find(o => o.k === 'group');
 }
 function countOf(slide) {
   const g = groupItem(slide.type);
   if (!g) return 0;
   return Number.isInteger(slide.count) ? Math.min(g.max, Math.max(g.min, slide.count)) : g.def;
 }
-// 칸마다 상자 위치와 제목·내용 글자 칸을 돌려준다
-function groupLayout(g, n) {
+function groupBoxes(g, n) {
   const boxes = [];
-  if (g.k === 'cards' && n === 4) {
+  if (g.variant === 'cards' && n === 4) {
     const w = (g.w - g.gap) / 2, h = (g.h - g.gap) / 2;
     for (let i = 0; i < 4; i++) boxes.push({ x: g.x + (i % 2) * (w + g.gap), y: g.y + Math.floor(i / 2) * (h + g.gap), w, h });
   } else {
     const w = (g.w - g.gap * (n - 1)) / n;
     for (let i = 0; i < n; i++) boxes.push({ x: g.x + i * (w + g.gap), y: g.y, w, h: g.h });
   }
-  const prefix = g.k === 'steps' ? 's' : 'c';
-  return boxes.map((b, i) => {
-    const small = b.h < 400;
-    const top = g.k === 'steps' ? 150 : (small ? 34 : 44);   // 단계는 위쪽에 번호 원이 있다
-    const headH = small ? 80 : 130;
-    const bodyY = top + headH + (small ? 10 : 20);
-    return {
-      box: b, no: i + 1,
-      head: { field: `${prefix}${i + 1}t`, x: b.x + 40, y: b.y + top, w: b.w - 80, h: headH },
-      body: { field: `${prefix}${i + 1}`, x: b.x + 40, y: b.y + bodyY, w: b.w - 80, h: b.h - bodyY - 36 },
-    };
-  });
+  return boxes;
+}
+// 형태의 개체를 실제 개체 목록으로 펼친다. all이면 개수와 상관없이 가장 많을 때까지 펼친다 (검증용).
+function expandObjects(slide, all) {
+  const out = [];
+  for (const o of TYPES[slide.type].objects) {
+    if (o.k !== 'group') { out.push({ ...o }); continue; }
+    const n = all ? o.max : countOf(slide);
+    const pre = o.variant === 'steps' ? 's' : 'c';
+    groupBoxes(o, n).forEach((b, i) => {
+      out.push({ id: `${pre}${i + 1}`, k: 'card', variant: o.variant, accent: o.variant === 'cards' ? 'blue' : null, no: i + 1, ...b,
+        head: `${pre}${i + 1}t`, body: `${pre}${i + 1}`, headPh: `${i + 1}번 제목`, bodyPh: '내용' });
+      if (o.variant === 'steps' && i < n - 1) {
+        out.push({ id: `a${i + 1}`, k: 'deco', text: '›', cls: 'arrow', x: b.x + b.w + o.gap / 2 - 22, y: b.y + b.h / 2 - 50, w: 44, h: 100 });
+      }
+    });
+  }
+  return out;
+}
+// 장의 layout(사용자가 옮기고 바꾼 값)을 덮어쓴 개체 목록. 숨긴 개체는 withHidden일 때만 포함한다.
+function placedObjects(slide, withHidden) {
+  const lay = slide.layout || {};
+  return expandObjects(slide).map(o => {
+    const v = lay[o.id];
+    if (!v) return o;
+    const p = { ...o };
+    for (const k of ['x', 'y', 'w', 'h', 'rot']) if (Number.isFinite(v[k])) p[k] = v[k];
+    if (v.hidden) p.hidden = true;
+    return p;
+  }).filter(o => withHidden || !o.hidden);
+}
+
+// 묶음 개체 안의 배치 (개체 왼쪽 위 기준). 개체 크기를 바꾸면 안의 배치도 따라 바뀐다.
+function cardInner(o) {
+  const { w, h } = o;
+  if (o.variant === 'compare') return { head: { x: 50, y: 40, w: w - 100, h: 130 }, body: { x: 50, y: 190, w: w - 100, h: Math.max(60, h - 230) } };
+  if (o.variant === 'steps') return { badge: { x: w / 2 - 48, y: 36 }, head: { x: 40, y: 150, w: w - 80, h: 130 }, body: { x: 40, y: 300, w: w - 80, h: Math.max(60, h - 336) } };
+  const small = h < 400, top = small ? 34 : 44, headH = small ? 80 : 130, bodyY = top + headH + (small ? 10 : 20);
+  return { head: { x: 40, y: top, w: w - 80, h: headH }, body: { x: 40, y: bodyY, w: w - 80, h: Math.max(60, h - bodyY - 36) } };
+}
+function bubbleInner(o) { return { x: 85, y: 65, w: Math.max(100, o.w - 290), h: Math.max(60, o.h - 105) }; }
+function codeInner(o) { return { x: 50, y: 45, w: Math.max(100, o.w - 100), h: Math.max(60, o.h - 90) }; }
+
+// 장의 글자 칸 목록 (검사 스크립트와 필드 목록에 쓴다): { texts:[{field, cls, plain}], w, h, gap, grow, table }
+function textBoxes(slide) {
+  const out = [];
+  for (const o of placedObjects(slide)) {
+    if (o.k === 'text') out.push({ id: o.id, texts: [{ field: o.field, cls: o.cls, plain: o.plain }], w: o.w, h: o.h, grow: o.grow });
+    if (o.k === 'stack') out.push({ id: o.id, texts: o.items, w: o.w, h: o.h, gap: o.gap * (o.items.length - 1), grow: o.grow });
+    if (o.k === 'bubble') { const r = bubbleInner(o); out.push({ id: o.id, texts: [{ field: o.field, cls: 'bubble' }], w: r.w, h: r.h, grow: o.grow }); }
+    if (o.k === 'codebox') { const r = codeInner(o); out.push({ id: o.id, texts: [{ field: o.field, cls: 'code', plain: true }], w: r.w, h: r.h }); }
+    if (o.k === 'card') {
+      const r = cardInner(o);
+      out.push({ id: o.id, texts: [{ field: o.head, cls: 'head' }], w: r.head.w, h: r.head.h });
+      out.push({ id: o.id, texts: [{ field: o.body, cls: 'card' }], w: r.body.w, h: r.body.h, grow: 1.4 });
+    }
+    if (o.k === 'table') out.push({ id: o.id, table: true, texts: [{ field: 'table', cls: 'cell' }], w: o.w, h: o.h, grow: o.grow });
+  }
+  return out;
 }
 
 /* ===== 필드 목록 ===== */
@@ -202,15 +247,18 @@ const FIELDS = [
 ];
 const PLAIN_FIELDS = new Set(['num', 'code']);   // 글자 서식 표기를 해석하지 않는 칸
 
-// 형태가 실제로 쓰는 글자 칸 (count가 있으면 그 개수까지)
+// 형태가 실제로 쓰는 글자 칸 (숨긴 개체 제외)
 function fieldsOf(slide) {
-  const out = [];
-  for (const it of TYPES[slide.type].items) {
-    if (it.k === 'text' || it.k === 'table') out.push(it.field);
-    if (it.k === 'stack') it.items.forEach(t => out.push(t.field));
-    if (it.k === 'cards' || it.k === 'steps') groupLayout(it, countOf(slide)).forEach(c => out.push(c.head.field, c.body.field));
-  }
-  return out;
+  return textBoxes(slide).flatMap(b => b.texts.map(t => t.field));
+}
+
+/* ===== 표·상자 내용의 자동 정렬 =====
+   제목·머리 줄은 가운데. 내용은 짧으면(2줄 이내, 줄마다 14자 이내) 가운데, 길면 왼쪽.
+   글머리표(•, -, ·)나 번호(1. 1))로 시작하는 목록은 짧아도 왼쪽. 사용자가 정렬을 정하면 그 값이 우선. */
+function autoAlign(text) {
+  const lines = stripMarkup(text).split('\n');
+  if (lines.some(l => /^\s*([•\-·*]|\d+[.)])\s/.test(l))) return 'left';
+  return lines.length <= 2 && lines.every(l => [...l].length <= 14) ? 'center' : 'left';
 }
 
 /* ===== 글자 서식 표기 =====
@@ -296,7 +344,7 @@ function defaultDeck() {
       { type: 'statement', quote: '꼭 기억할 **한 문장**', sub: '덧붙이는 말' },
       { type: 'code', title: '코드나 주소', code: 'https://example.com/api?key=내키', sub: '설명을 적어주세요' },
       { type: 'table', title: '표로 정리해요', table: '구분 | 내용\n첫째 | 설명\n둘째 | 설명' },
-      { type: 'image', title: '그림과 함께 설명해요', img: 'assets/hero-props.png', body: '그림 칸을 눌러 다른 그림을 고를 수 있어요', sub: '보조 설명' },
+      { type: 'image', title: '그림과 함께 설명해요', img: 'assets/hero-props.png', body: '그림 칸을 두 번 눌러 다른 그림을 고를 수 있어요', sub: '보조 설명' },
       { type: 'chapterA', num: '01', title: '챕터 제목을 입력하세요', sub: '이번 장에서 다룰 주제를 적어주세요' },
       { type: 'chapterB', num: '02', title: '챕터 제목을 입력하세요', sub: '이번 장에서 다룰 주제를 적어주세요' },
       { type: 'end', title: '감사합니다', sub: '궁금한 점을 함께 나눠요', name: '발표자 이름' },
@@ -311,7 +359,7 @@ const ALIGNS = ['left', 'center', 'right'];
 
 // 스티커와 그림 칸 이미지는 앱이 아는 파일만 허용한다 (외부 주소, 인코딩된 상위 경로 차단)
 function allowedSrc() {
-  const imgs = Object.values(TYPES).flatMap(t => t.items.filter(i => i.k === 'img').map(i => i.src));
+  const imgs = Object.values(TYPES).flatMap(t => t.objects.filter(o => o.k === 'img').map(o => o.src));
   return new Set([...STICKERS.map(s => s.src), ...imgs]);
 }
 
@@ -363,6 +411,24 @@ function sanitize(d) {
         }
         if (Object.keys(styles).length) out.styles = styles;
       }
+      // 개체 배치: 이 형태에 있는 개체 id만, 숫자는 범위 안으로
+      if (s.layout && typeof s.layout === 'object') {
+        const ids = new Set(expandObjects(out, true).map(o => o.id));
+        const layout = {};
+        for (const id of ids) {
+          const v = s.layout[id];
+          if (!v || typeof v !== 'object') continue;
+          const o = {};
+          if (Number.isFinite(v.x)) o.x = int(v.x, -W, 2 * W, 0);
+          if (Number.isFinite(v.y)) o.y = int(v.y, -H, 2 * H, 0);
+          if (Number.isFinite(v.w)) o.w = int(v.w, 20, 2 * W, 200);
+          if (Number.isFinite(v.h)) o.h = int(v.h, 20, 2 * H, 200);
+          if (Number.isFinite(v.rot)) o.rot = int(v.rot, -180, 180, 0);
+          if (v.hidden === true) o.hidden = true;
+          if (Object.keys(o).length) layout[id] = o;
+        }
+        if (Object.keys(layout).length) out.layout = layout;
+      }
       const list = Array.isArray(s.stickers) ? s.stickers : [];
       if (list.length > MAX_STICKERS) throw new Error(`한 장의 스티커가 ${MAX_STICKERS}개를 넘습니다.`);
       for (const k of list) {
@@ -381,7 +447,8 @@ function sanitize(d) {
 
 // Node에서 읽을 수 있게 내보낸다 (브라우저에서는 위 선언이 그대로 전역으로 쓰인다)
 globalThis.DeckSpec = {
-  W, H, BG, BG_LABELS, STICKERS, PALETTE, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS, TYPES, FIELDS, PLAIN_FIELDS,
-  MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, fieldsOf, countOf, groupItem, groupLayout,
+  APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
+  TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc,
+  expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign,
   parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
 };

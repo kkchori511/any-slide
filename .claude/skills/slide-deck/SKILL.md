@@ -43,7 +43,8 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
 - **Codex라면**: 이미지 생성 기능으로 직접 만든다.
 - **Claude라면**: 그림을 그리지 못하므로 herdr의 Codex 창에 맡긴다. `herdr pane list`에서 `agent`가 `codex`인 창을 찾아 `herdr pane send-text <창> "<요청>"` 후 `herdr pane send-keys <창> Enter`로 보낸다. 요청에는 브리프 경로, 만들 대상, 저장 경로, 끝나면 결과를 적을 파일을 넣는다. 결과 파일이 생길 때까지 기다린다.
 - 저장: `app/assets/generated/sticker_<이름>.png`, 1254x1254 투명 PNG.
-- 만든 뒤 `app/deck-spec.js`의 `STICKERS`에 `{ src, w, name }`으로 추가하고 이 문서의 스티커 표에도 적는다. 이미지를 직접 열어 체크리스트(브리프 7번)를 확인한다.
+- 만든 뒤 `app/deck-spec.js`의 `STICKERS`에 `{ src, w, name, group: 'extra' }`로 추가한다. 새로 만든 그림은 항상 스티커 패널의 **[추가]** 탭(`group: 'extra'`)에 하나씩 넣는다. [기본] 탭 8개는 바꾸지 않는다.
+- 이 문서의 스티커 표에도 적고, 이미지를 직접 열어 체크리스트(브리프 7번)를 확인한다.
 
 ### 4. 덱 작성
 
@@ -80,6 +81,15 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
 - 같은 형태가 3장 넘게 이어지지 않게 섞는다. 챕터 A와 B는 번갈아 쓴다.
 - 강조는 아껴 쓴다: 장마다 굵게나 색 1~2곳.
 
+### 표·상자 정렬
+
+- 표의 머리 줄, 카드·단계·비교 상자의 제목은 **가운데**가 기본이다.
+- 내용은 앱이 자동으로 정렬한다.
+  - 짧은 글(2줄 이내, 줄마다 14자 이내)은 가운데
+  - 긴 글은 왼쪽
+  - 글머리표(•, -)나 번호(1.)로 시작하는 목록은 짧아도 왼쪽
+- 자동 정렬을 바꿔야 할 때만 `styles`의 `align`을 쓴다. 정렬이 섞여 보이지 않게 같은 장의 상자들은 글 길이를 비슷하게 맞춘다.
+
 ## 덱 형식
 
 ```json
@@ -112,7 +122,35 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
   - 표기 글자를 그대로 쓰려면 앞에 `\`를 붙인다.
   - `code`와 `num` 칸은 표기를 해석하지 않는다.
 - `styles`: 칸 전체의 `scale`(0.5~2), `align`(`left`/`center`/`right`), `lh`(줄 간격 1~2.4). 꼭 필요할 때만 쓴다.
+- `layout`: 형태의 개체를 장마다 옮기거나 바꾼 값. 아래 "개체 배치" 참고. 꼭 필요할 때만 쓴다.
 - 규칙의 원본은 `app/deck-spec.js`(형태 `TYPES`, 스티커 `STICKERS`, 검증 `sanitize`)다. 이 문서와 다르면 그 파일이 맞다.
+
+## 개체 배치 (`layout`)
+
+형태의 그림과 글상자는 모두 개체다. 사용자는 앱에서 끌어 옮기고, 크기를 바꾸고, 회전하고, 삭제할 수 있다. 덱에서는 장마다 `layout`에 바뀐 값만 적는다.
+
+```json
+"layout": { "hero": { "x": 1050, "y": 260, "w": 700, "rot": -5 }, "name": { "hidden": true } }
+```
+
+- `x`, `y`는 왼쪽 위, `w`, `h`는 폭·높이(글상자의 `h`는 칸 높이, 그림은 `w`만), `rot`는 회전, `hidden: true`는 숨김이다.
+- 형태를 바꾸면 그 장의 `layout`은 지워진다.
+- 기본 배치가 잘 맞으므로 덱을 만들 때는 거의 쓰지 않는다. 그림을 가리는 글을 피하거나, 필요 없는 장식을 숨길 때만 쓴다.
+
+| type | 개체 id |
+| --- | --- |
+| `cover`, `end` | `title`, `sub`, `name`, `hero`(캐릭터와 소품) |
+| `body` | `title`, `main`(본문+보조 설명), `face` |
+| `explain` | `title`, `bubble`(말풍선과 글), `char` |
+| `compare` | `title`, `L`, `R` |
+| `cards` | `title`, `c1` … `c4` |
+| `steps` | `title`, `s1` … `s4`, 화살표 `a1` … `a3` |
+| `statement` | `qmark`(따옴표 장식), `main`, `spark` |
+| `code` | `title`, `codebox`, `sub` |
+| `table` | `title`, `table` |
+| `image` | `title`, `slot`(그림 칸), `main` |
+| `chapterA` | `num`, `title`, `sub`, `char` |
+| `chapterB` | `num`, `title`, `sub`, `props` |
 
 ## 형태 표
 
@@ -144,18 +182,20 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
 - `x`, `y`는 스티커 왼쪽 위, `w`는 폭(px)이고 높이는 이미지 비율대로 정해진다.
 - `rot`는 회전 각도(-180~180), `flip`은 좌우 뒤집기, `float`는 둥실둥실이다.
 
-| src | 내용 | 권장 w |
-| --- | --- | --- |
-| `assets/generated/sticker_반짝이.png` | 노란 반짝이 | 180~260 |
-| `assets/generated/sticker_별.png` | 노란 별 | 180~240 |
-| `assets/generated/sticker_체크.png` | 초록 체크 | 180~240 |
-| `assets/generated/sticker_화살표.png` | 파란 오른쪽 화살표 | 220~300 |
-| `assets/generated/sticker_하트.png` | 빨간 하트 | 180~240 |
-| `assets/generated/sticker_말풍선.png` | 빈 흰 말풍선 (글자 못 넣음) | 260~360 |
-| `assets/generated/sticker_API점원.png` | 쟁반에 데이터 상자를 내미는 로봇 점원 (API 요청·응답) | 300~420, 그림 칸 |
-| `assets/generated/sticker_여행.png` | 지도와 위치 핀, 여행 가방 (여행·장소 추천) | 260~360 |
-| `assets/face.png` | 캐릭터 얼굴 | 160~260 |
-| `assets/hero-props.png` | 캐릭터와 소품 7종 | 400~600 |
+스티커 패널은 **[기본]** 8개와 **[추가]**(덱을 만들며 새로 생성한 그림) 두 탭이다.
+
+| src | 내용 | 권장 w | 탭 |
+| --- | --- | --- | --- |
+| `assets/generated/sticker_반짝이.png` | 노란 반짝이 | 180~260 | 기본 |
+| `assets/generated/sticker_별.png` | 노란 별 | 180~240 | 기본 |
+| `assets/generated/sticker_체크.png` | 초록 체크 | 180~240 | 기본 |
+| `assets/generated/sticker_화살표.png` | 파란 오른쪽 화살표 | 220~300 | 기본 |
+| `assets/generated/sticker_하트.png` | 빨간 하트 | 180~240 | 기본 |
+| `assets/generated/sticker_말풍선.png` | 빈 흰 말풍선 (글자 못 넣음) | 260~360 | 기본 |
+| `assets/generated/sticker_API점원.png` | 쟁반에 데이터 상자를 내미는 로봇 점원 (API 요청·응답) | 300~420, 그림 칸 | 추가 |
+| `assets/generated/sticker_여행.png` | 지도와 위치 핀, 여행 가방 (여행·장소 추천) | 260~360 | 추가 |
+| `assets/face.png` | 캐릭터 얼굴 | 160~260 | 기본 |
+| `assets/hero-props.png` | 캐릭터와 소품 7종 | 400~600 | 기본 |
 
 - 목록에 없는 경로는 앱이 버린다. `image` 형태의 `img`에도 이 목록의 그림만 쓴다.
 - 글자 칸과 캐릭터 위에 올리지 않는다. 본문 장은 오른쪽 아래 빈 곳이 무난하다.

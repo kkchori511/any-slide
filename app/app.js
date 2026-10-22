@@ -18,7 +18,7 @@ const $ = id => document.getElementById(id);
 const host = $('slideHost'), box = $('stageBox'), wrap = $('stageWrap');
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-const HINT = '글자를 누르면 글자 도구, 스티커를 누르면 크기·회전·순서 도구가 위에 나와요 · 화살표로 스티커 이동, Delete로 삭제';
+const HINT = '글자를 누르면 편집 · 테두리나 그림을 끌어 이동, 모서리 점으로 크기, 위쪽 손잡이로 회전 · 끄는 동안 ⌥(Alt)를 누르면 맞춤 끄기 · 화살표로 이동, Delete로 삭제';
 let loadWarning = '', brokenRaw = null;
 
 function loadDeck() {
@@ -222,7 +222,20 @@ function fxClasses(animate) {
   };
 }
 
-function slideHTML(slide, { editable, animate }) {
+// 개체마다 바깥 틀(.obj: 위치·크기·회전)을 두고 안에 내용을 그린다. 편집할 때는 테두리·손잡이도 함께 그린다.
+const BOX_HANDLES = ['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'];
+const UNI_HANDLES = ['nw', 'ne', 'sw', 'se'];   // 그림은 비율을 지켜 크기를 바꾼다
+const TEXTY = new Set(['text', 'stack', 'bubble', 'card', 'codebox', 'table']);   // 안의 글자를 눌러 편집하는 개체: 테두리를 끌어 옮긴다
+function frameHTML(o) {
+  const hs = (o.k === 'img' ? UNI_HANDLES : BOX_HANDLES).map(h => `<i class="h ${h}"></i>`).join('');
+  const edges = TEXTY.has(o.k) ? '<i class="eg n"></i><i class="eg s"></i><i class="eg e"></i><i class="eg w"></i>' : '';
+  return `<i class="fr"></i>${edges}${hs}<i class="h turn" title="돌리기 (Shift: 15도씩)"></i>`;
+}
+function objBoxStyle(o) {
+  return `left:${o.x}px;top:${o.y}px;width:${o.w}px;` + (o.k === 'img' ? '' : `height:${o.h}px;`) + (o.rot ? `transform:rotate(${o.rot}deg);` : '');
+}
+
+function slideRenderer(slide, { editable, animate }) {
   const fx = fxClasses(animate);
   const styles = slide.styles || {};
   let n = 0;
@@ -232,66 +245,73 @@ function slideHTML(slide, { editable, animate }) {
     const st = styles[field] || {};
     return (st.scale ? `--k:${st.scale};` : '') + ((st.align || align) ? `text-align:${st.align || align};` : '') + (st.lh ? `line-height:${st.lh};` : '');
   };
-  // 글자 칸 하나. pos가 있으면 절대 위치, 없으면 묶음 안에서 흐른다
+  // 글자 칸 하나. pos가 있으면 개체 안의 절대 위치, 없으면 개체 안에서 흐른다.
+  // align: 형태의 기본 정렬 / auto: 내용 길이로 정렬(짧으면 가운데, 길면 왼쪽). 사용자가 정한 정렬(styles)이 우선.
   const text = (t, pos = '', fit = null) => {
     const plain = !!t.plain || PLAIN_FIELDS.has(t.field);
     const v = slide[t.field] ?? '';
+    const align0 = t.align || (t.auto ? autoAlign(v) : '');
     const attrs = (fit ? ` data-h="${fit.h}"` + (fit.grow ? ` data-grow="${fit.grow}"` : '') : '') + (plain ? ' data-plain="1"' : '')
-      + (t.align ? ` data-align0="${t.align}"` : '');   // 형태의 기본 정렬 (도구 줄 표시와 되돌리기에 쓴다)
-    return `<div class="t ${t.cls} ${fx.text}" data-field="${t.field}" data-ph="${esc(t.ph || '')}"${attrs}${ceAttr(plain)}`
-      + ` style="${pos}--d:${nextD()}s;${boxStyle(t.field, t.align)}">${plain ? plainToHTML(v) : markupToHTML(v)}</div>`;
+      + (align0 ? ` data-align0="${align0}"` : '') + (t.auto ? ' data-auto="1"' : '');
+    return `<div class="t ${t.cls}${pos ? ' abs' : ''} ${fx.text}" data-field="${t.field}" data-ph="${esc(t.ph || '')}"${attrs}${ceAttr(plain)}`
+      + ` style="${pos}--d:${nextD()}s;${boxStyle(t.field, align0)}">${plain ? plainToHTML(v) : markupToHTML(v)}</div>`;
   };
-  const at = it => `left:${it.x}px;top:${it.y}px;width:${it.w}px;`;
-  const rect = it => `${at(it)}height:${it.h}px;`;
+  const rel = r => `left:${r.x}px;top:${r.y}px;width:${r.w}px;`;
 
-  const parts = [];
-  for (const it of TYPES[slide.type].items) {
-    if (it.k === 'text') parts.push(text(it, at(it), it));
-    else if (it.k === 'stack') {
-      const inner = it.items.map(t => text(t)).join('');
-      parts.push(`<div class="stack${it.center ? ' center' : ''}" data-h="${it.h}"${it.grow ? ` data-grow="${it.grow}"` : ''}${it.center ? ' data-center="1"' : ''}`
-        + ` style="${at(it)}gap:${it.gap}px;${it.center ? `height:${it.h}px;` : ''}">${inner}</div>`);
+  function inner(o) {
+    switch (o.k) {
+      case 'text': return text(o, '', o);
+      case 'stack':
+        return `<div class="stack${o.center ? ' center' : ''}" data-h="${o.h}"${o.grow ? ` data-grow="${o.grow}"` : ''}${o.center ? ' data-center="1"' : ''}`
+          + ` style="gap:${o.gap}px">${o.items.map(t => text(t)).join('')}</div>`;
+      case 'img': return `<img class="objimg ${fx.img(o.anim)}" src="${o.src}" alt="" style="--d:${0.35 + n * 0.1}s">`;
+      case 'deco': return `<div class="${o.cls}">${esc(o.text)}</div>`;
+      case 'bubble': {
+        // 말풍선 도형: 개체 크기에 맞춰 늘어나고 선 굵기는 그대로
+        const r = bubbleInner(o);
+        return `<svg class="bubble-shape ${fx.pop ? 'bubble-pop' : ''}" style="--d:0.25s" viewBox="0 0 1140 375" preserveAspectRatio="none">`
+          + '<path d="M40 0H950Q990 0 990 40V220L1140 318L990 313V335Q990 375 950 375H40Q0 375 0 335V40Q0 0 40 0Z" fill="#fefcf7" stroke="#a39b92" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>'
+          + text({ field: o.field, cls: 'bubble', ph: o.ph }, rel(r), { h: r.h, grow: o.grow });
+      }
+      case 'codebox': {
+        const r = codeInner(o);
+        return `<div class="panel dark ${fx.text ? 'fx-fade' : ''}" style="--d:0s"></div>` + text({ field: o.field, cls: 'code', plain: true, ph: o.ph }, rel(r), { h: r.h });
+      }
+      case 'card': {
+        const r = cardInner(o), no = o.no || 0;
+        let h = `<div class="panel ${fx.text ? 'fx-fade' : ''}" style="--d:${0.05 + no * 0.12}s"></div>`;
+        if (r.badge) h += `<div class="badge ${fx.pop ? 'pop' : ''}" style="left:${r.badge.x}px;top:${r.badge.y}px;--d:${0.2 + no * 0.15}s">${o.no}</div>`;
+        h += text({ field: o.head, cls: 'head' + (o.accent ? ` acc-${o.accent}` : ''), ph: o.headPh, align: 'center' }, rel(r.head), { h: r.head.h });
+        h += text({ field: o.body, cls: 'card', ph: o.bodyPh, auto: true }, rel(r.body), { h: r.body.h, grow: 1.4 });
+        return h;
+      }
+      case 'table': {
+        // 머리 줄은 가운데, 나머지 칸은 내용 길이로 자동 정렬
+        const rows = parseTable(slide.table ?? '');
+        const cols = rows[0].length;
+        const cells = rows.flatMap((r, ri) => r.map((v, ci) => {
+          const cls = ['t', 'cell', ri === 0 ? 'th' : '', ci === cols - 1 ? 'last-col' : '', ri === rows.length - 1 ? 'last-row' : ''].join(' ');
+          const a0 = ri === 0 ? 'center' : autoAlign(v);
+          return `<div class="${cls}" data-cell="${ri},${ci}" data-ph="" data-align0="${a0}"${ri ? ' data-auto="1"' : ''}${ceAttr(false)} style="${boxStyle('table', a0)}">${markupToHTML(v)}</div>`;
+        })).join('');
+        return `<div class="table ${fx.text ? 'fx-fade' : ''}" data-field="table" data-h="${o.h}"${o.grow ? ` data-grow="${o.grow}"` : ''}`
+          + ` style="grid-template-columns:repeat(${cols},minmax(0,1fr));--d:${nextD()}s">${cells}</div>`;
+      }
+      case 'slot': {
+        const img = slide.img ? `<img class="${fx.pop ? 'pop' : ''}" src="${esc(slide.img)}" alt="" style="--d:0.3s">` : (editable ? '그림 고르기 (두 번 누르기)' : '');
+        return `<div class="slot${slide.img ? '' : ' empty'}" data-slot="1">${img}</div>`;
+      }
     }
-    else if (it.k === 'img') {
-      parts.push(`<img class="img ${fx.img(it.anim)}" src="${it.src}" alt="" style="${at(it)}--d:${0.35 + n * 0.1}s">`);
-    }
-    else if (it.k === 'bubble') {
-      // 말풍선 도형 (꼬리가 오른쪽 캐릭터를 향함)
-      parts.push(`<svg class="${fx.pop ? 'bubble-pop' : ''}" style="left:0;top:0;--d:0.25s" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-        <path d="M190 315H1100Q1140 315 1140 355V535L1290 633L1140 628V650Q1140 690 1100 690H190Q150 690 150 650V355Q150 315 190 315Z"
-          fill="#fefcf7" stroke="#a39b92" stroke-width="2"/></svg>`);
-    }
-    else if (it.k === 'panel') parts.push(`<div class="panel${it.tone === 'dark' ? ' dark' : ''} ${fx.text ? 'fx-fade' : ''}" style="${rect(it)}--d:0s"></div>`);
-    else if (it.k === 'deco') parts.push(`<div class="${it.cls}" style="left:${it.x}px;top:${it.y}px">${esc(it.text)}</div>`);
-    else if (it.k === 'cards' || it.k === 'steps') {
-      const steps = it.k === 'steps';
-      const cells = groupLayout(it, countOf(slide));
-      cells.forEach((c, i) => {
-        parts.push(`<div class="panel ${fx.text ? 'fx-fade' : ''}" style="${rect(c.box)}--d:${0.05 + i * 0.12}s"></div>`);
-        if (steps) {
-          parts.push(`<div class="badge ${fx.pop ? 'pop' : ''}" style="left:${c.box.x + c.box.w / 2 - 48}px;top:${c.box.y + 36}px;--d:${0.2 + i * 0.15}s">${c.no}</div>`);
-          if (i < cells.length - 1) parts.push(`<div class="arrow" style="left:${c.box.x + c.box.w + it.gap / 2 - 22}px;top:${c.box.y + c.box.h / 2 - 50}px">›</div>`);
-        }
-        parts.push(text({ field: c.head.field, cls: steps ? 'head' : 'head acc-blue', ph: `${c.no}번 제목`, align: steps ? 'center' : '' }, at(c.head), { h: c.head.h }));
-        parts.push(text({ field: c.body.field, cls: 'card', ph: '내용', align: steps ? 'center' : '' }, at(c.body), { h: c.body.h, grow: 1.4 }));
-      });
-    }
-    else if (it.k === 'table') {
-      const rows = parseTable(slide.table ?? '');
-      const cols = rows[0].length;
-      const cellStyle = boxStyle('table');
-      const cells = rows.flatMap((r, ri) => r.map((v, ci) => {
-        const cls = ['t', 'cell', ri === 0 ? 'th' : '', ci === cols - 1 ? 'last-col' : '', ri === rows.length - 1 ? 'last-row' : ''].join(' ');
-        return `<div class="${cls}" data-cell="${ri},${ci}" data-ph=""${ceAttr(false)} style="${cellStyle}">${markupToHTML(v)}</div>`;
-      })).join('');
-      parts.push(`<div class="table ${fx.text ? 'fx-fade' : ''}" data-field="table" data-h="${it.h}"${it.grow ? ` data-grow="${it.grow}"` : ''}`
-        + ` style="${at(it)}grid-template-columns:repeat(${cols},minmax(0,1fr));--d:${nextD()}s">${cells}</div>`);
-    }
-    else if (it.k === 'slot') {
-      const img = slide.img ? `<img class="${fx.pop ? 'pop' : ''}" src="${esc(slide.img)}" alt="" style="--d:0.3s">` : (editable ? '그림 고르기' : '');
-      parts.push(`<div class="slot${slide.img ? '' : ' empty'}" data-slot="1" style="${rect(it)}">${img}</div>`);
-    }
+    return '';
   }
+  const objHTML = o => `<div class="obj k-${o.k}" data-oid="${o.id}" style="${objBoxStyle(o)}">${inner(o)}${editable ? frameHTML(o) : ''}</div>`;
+  return { objHTML };
+}
+
+function slideHTML(slide, opts) {
+  const fx = fxClasses(opts.animate);
+  const R = slideRenderer(slide, opts);
+  const parts = placedObjects(slide).map(R.objHTML);
   // 스티커: 바깥은 위치와 등장 효과, 안쪽은 회전, 그림은 뒤집기
   const stickers = (slide.stickers || []).map((s, i) => {
     const anim = [fx.pop ? 'pop' : '', fx.float && s.float !== false ? 'float' : ''].join(' ').trim();
@@ -300,6 +320,12 @@ function slideHTML(slide, { editable, animate }) {
       + `<i class="h nw"></i><i class="h ne"></i><i class="h sw"></i><i class="h se"></i><i class="h turn" title="돌리기 (Shift: 15도씩)"></i></div></div>`;
   });
   return parts.join('') + stickers.join('');
+}
+// 개체 하나만 새로 그린다 (크기를 바꾸는 동안 안의 배치를 다시 맞출 때)
+function makeObjNode(o) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = slideRenderer(deck.slides[cur], { editable: mode === 'edit', animate: false }).objHTML(o);
+  return tmp.firstElementChild;
 }
 
 function makeSlide(slide, opts) {
@@ -385,8 +411,9 @@ function renderStage(opts = {}) {
   }
   fit();
   fitText(el);
-  if (!opts.keepSel) sel = -1;
+  if (!opts.keepSel) { sel = -1; selO = null; }
   activeText = null;
+  markSelection();
   updateHud();
   renderCtx();
 }
@@ -438,7 +465,6 @@ function go(i, force) {
 function redraw(keepSel) {
   renderStage({ still: true, keepSel });
   renderThumbs();
-  if (keepSel) selectSticker(sel);
 }
 
 /* ===== 글자 편집 ===== */
@@ -458,6 +484,13 @@ function commitText(el) {
   else if (el.dataset.plain) slide[el.dataset.field] = domItems(el).map(i => i.text).join('');   // 서식 칸과 같은 줄바꿈 규칙
   else slide[el.dataset.field] = elToMarkup(el);
   if (!el.textContent && el.innerHTML) el.innerHTML = '';   // 비우면 안내 문구가 다시 보이게
+  // 표·상자 내용은 길이에 따라 정렬을 다시 정한다 (사용자가 정렬을 정했으면 그대로)
+  if (el.dataset.auto) {
+    const a0 = autoAlign(el.dataset.cell ? elToMarkup(el) : slide[el.dataset.field]);
+    el.dataset.align0 = a0;
+    const st = (slide.styles || {})[boxField(el)];
+    if (!st || !st.align) el.style.textAlign = a0;
+  }
   const boxEl = el.closest('[data-h]');
   if (boxEl) fitBox(boxEl);   // 입력 중인 칸만 다시 맞춘다 (커서는 그대로)
   save(); refreshThumb();
@@ -479,7 +512,10 @@ host.addEventListener('focusin', e => {
   if (!t) return;
   if (t !== activeText) lastRange = null;
   activeText = t;
-  if (sel >= 0) selectSticker(-1, true);
+  // 글자를 편집하면 그 글자가 든 개체를 선택한 것으로 보고 테두리와 손잡이를 보여 준다
+  const ob = t.closest('.obj');
+  sel = -1; selO = ob ? ob.dataset.oid : null;
+  markSelection();
   renderCtx();
 });
 // 편집 칸에서 도구 줄로 포커스가 옮겨 가면(Tab 등) 편집 중인 칸을 그대로 둔다. 둘 다 벗어났을 때만 해제한다.
@@ -567,13 +603,28 @@ function boxStyleOf(el) {
   return (s && s[boxField(el)]) || {};
 }
 
-/* ===== 스티커 ===== */
+/* ===== 개체 선택 (형태의 개체와 스티커) ===== */
+let selO = null;   // 선택된 형태 개체 id (스티커 선택 sel과 함께 쓰지 않는다)
+function stickerEl(i) { return curEl && curEl.querySelector(`.sticker[data-i="${i}"]`); }
+function objEl(id) { return curEl && [...curEl.querySelectorAll(':scope > .obj')].find(el => el.dataset.oid === id); }
+function markSelection() {
+  if (!curEl) return;
+  curEl.querySelectorAll(':scope > .sticker').forEach(el => el.classList.toggle('sel', +el.dataset.i === sel));
+  curEl.querySelectorAll(':scope > .obj').forEach(el => el.classList.toggle('sel', el.dataset.oid === selO));
+}
 function selectSticker(i, quiet) {
   sel = i;
-  host.querySelectorAll(':scope > .slide:not(.tr-out) .sticker').forEach(el => el.classList.toggle('sel', +el.dataset.i === i));
+  if (i >= 0) selO = null;
+  markSelection();
   if (!quiet) renderCtx();
 }
-function stickerEl(i) { return curEl && curEl.querySelector(`.sticker[data-i="${i}"]`); }
+function selectObj(id, quiet) {
+  selO = id;
+  if (id) sel = -1;
+  markSelection();
+  if (!quiet) renderCtx();
+}
+function selectNone() { sel = -1; selO = null; markSelection(); renderCtx(); }
 // 가로세로 절반 이상은 슬라이드 안에 남겨서 잃어버리지 않게 한다. 세로는 실제 그려진 높이를 쓴다.
 function placeSticker(st, data) {
   const hh = st.offsetHeight || data.w;
@@ -581,49 +632,186 @@ function placeSticker(st, data) {
   data.y = clamp(Math.round(data.y), -Math.round(hh / 2), H - Math.round(hh / 2));
   st.style.left = data.x + 'px'; st.style.top = data.y + 'px'; st.style.width = data.w + 'px';
 }
+// 개체의 현재 위치·크기 (형태 기본값 위에 이 장의 layout을 덮어쓴 값)
+function objGeom(id) { return placedObjects(deck.slides[cur], true).find(o => o.id === id); }
+function setLayout(id, patch) {
+  const s = deck.slides[cur];
+  s.layout ||= {};
+  const v = { ...(s.layout[id] || {}), ...patch };
+  for (const k of Object.keys(v)) if (v[k] === null) delete v[k];
+  if (Object.keys(v).length) s.layout[id] = v; else delete s.layout[id];
+  if (!Object.keys(s.layout).length) delete s.layout;
+}
+
+/* ===== 끌기: 이동·크기·회전과 보조선 맞춤 =====
+   다른 개체의 왼쪽·가운데·오른쪽(위·가운데·아래)과 슬라이드의 가운데선·기본 여백선에 10px 안으로 다가가면 달라붙는다.
+   ⌥(Alt)를 누른 채 끌면 맞춤 없이 움직인다. 회전한 개체는 회전한 바깥 테두리로 맞춘다. */
+const SNAP = 10;
+const GUIDE_X = [0, 160, W / 2, W - 160, W], GUIDE_Y = [0, 114, 300, H / 2, 960, H];
+function bboxOf(g) {
+  const a = (g.rot || 0) * Math.PI / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+  const ex = g.w / 2 * c + g.h / 2 * s, ey = g.w / 2 * s + g.h / 2 * c;
+  const cx = g.x + g.w / 2, cy = g.y + g.h / 2;
+  return { l: cx - ex, r: cx + ex, t: cy - ey, b: cy + ey, cx, cy };
+}
+function snapTargets(exclude) {
+  const xs = [...GUIDE_X], ys = [...GUIDE_Y];
+  const r0 = host.getBoundingClientRect();
+  curEl.querySelectorAll(':scope > .obj, :scope > .sticker').forEach(el => {
+    if (el === exclude) return;
+    const r = el.getBoundingClientRect();
+    const l = (r.left - r0.left) / scale, t = (r.top - r0.top) / scale, rr = (r.right - r0.left) / scale, b = (r.bottom - r0.top) / scale;
+    xs.push(l, (l + rr) / 2, rr); ys.push(t, (t + b) / 2, b);
+  });
+  return { xs, ys };
+}
+// 값들 중 기준선에 가장 가까운 것 (SNAP 안일 때만)
+function nearest(vals, lines) {
+  let best = null;
+  for (const v of vals) for (const line of lines) {
+    const d = line - v;
+    if (Math.abs(d) <= SNAP && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, line };
+  }
+  return best;
+}
+function drawGuides(list) {
+  if (!curEl) return;
+  curEl.querySelectorAll(':scope > .guide').forEach(g => g.remove());
+  for (const [dir, at] of list) {
+    const g = document.createElement('div');
+    g.className = 'guide ' + dir;
+    g.style[dir === 'v' ? 'left' : 'top'] = at + 'px';
+    curEl.appendChild(g);
+  }
+}
+function showSnapHint(on) {
+  if (!curEl) return;
+  curEl.querySelectorAll(':scope > .snap-hint').forEach(x => x.remove());
+  if (on) curEl.insertAdjacentHTML('beforeend', '<div class="snap-hint">⌥(Alt)를 누르면 맞춤 끄기</div>');
+}
 
 host.addEventListener('pointerdown', e => {
-  if (mode !== 'edit' || !curEl || !curEl.contains(e.target)) return;
-  if (e.target.closest('[data-slot]')) { e.preventDefault(); openStickerPanel(true); return; }
-  const st = e.target.closest('.sticker');
-  if (!st) { if (sel >= 0) selectSticker(-1); return; }
+  if (mode !== 'edit' || !curEl || !curEl.contains(e.target) || e.button > 0) return;
+  const st = e.target.closest('.sticker'), ob = e.target.closest('.obj');
+  if (!st && !ob) { if (sel >= 0 || selO) selectNone(); return; }
+  const hd = e.target.closest('.h'), edge = e.target.closest('.eg');
+  // 개체 안의 글자를 누르면 글자 편집 (선택 표시는 focusin에서)
+  if (ob && !hd && !edge && e.target.closest('.t[contenteditable]')) return;
   e.preventDefault();
   releaseFocus();
-  const i = +st.dataset.i, data = deck.slides[cur].stickers[i];
-  selectSticker(i);
-  const h = e.target.closest('.h');
-  const op = !h ? 'move' : h.classList.contains('turn') ? 'turn' : 'size';
-  const P = ev => { const r = host.getBoundingClientRect(); return { x: (ev.clientX - r.left) / scale, y: (ev.clientY - r.top) / scale }; };
-  const p0 = P(e), ox = data.x, oy = data.y, ow = data.w;
-  const ratio = (st.offsetHeight || ow) / ow;
-  const cx = ox + ow / 2, cy = oy + ow * ratio / 2;
-  const d0 = Math.hypot(p0.x - cx, p0.y - cy) || 1;
-  st.classList.remove('pop', 'float'); st.style.animation = 'none';
-  st.setPointerCapture(e.pointerId);
-  const move = ev => {
-    const p = P(ev);
-    if (op === 'move') { data.x = ox + p.x - p0.x; data.y = oy + p.y - p0.y; }
-    else if (op === 'size') {
-      // 가운데를 기준으로 모서리까지의 거리만큼 크기를 바꾼다 (회전해 있어도 같은 방식)
-      data.w = clamp(Math.round(ow * Math.hypot(p.x - cx, p.y - cy) / d0), 40, W);
-      data.x = cx - data.w / 2; data.y = cy - data.w * ratio / 2;
-    } else {
-      let a = Math.atan2(p.y - cy, p.x - cx) * 180 / Math.PI + 90;
-      if (ev.shiftKey) a = Math.round(a / 15) * 15;
-      data.rot = ((Math.round(a) % 360) + 540) % 360 - 180;
-      st.querySelector('.rot').style.transform = `rotate(${data.rot}deg)`;
-    }
-    placeSticker(st, data);
-  };
-  // 손을 떼거나 터치가 취소되거나 캡처를 잃어도 같은 방식으로 마무리한다
-  const end = () => {
-    for (const [t, f] of [['pointermove', move], ['pointerup', end], ['pointercancel', end], ['lostpointercapture', end]]) st.removeEventListener(t, f);
-    save(); refreshThumb(); renderCtx();
-  };
-  st.addEventListener('pointermove', move);
-  for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) st.addEventListener(t, end);
+  let t;
+  if (st) {
+    const i = +st.dataset.i, s = deck.slides[cur].stickers[i];
+    selectSticker(i);
+    t = { el: st, kind: 'sticker', data: s, uniform: true, g: { x: s.x, y: s.y, w: s.w, h: st.offsetHeight || s.w, rot: s.rot || 0 } };
+  } else {
+    const id = ob.dataset.oid, o = objGeom(id);
+    selectObj(id);
+    t = { el: ob, kind: 'obj', id, o, uniform: o.k === 'img', g: { x: o.x, y: o.y, w: o.w, h: o.k === 'img' ? ob.offsetHeight : o.h, rot: o.rot || 0 } };
+  }
+  startDrag(e, t, hd);
 });
 
+function startDrag(e, t, hd) {
+  const P = ev => { const r = host.getBoundingClientRect(); return { x: (ev.clientX - r.left) / scale, y: (ev.clientY - r.top) / scale }; };
+  const p0 = P(e), g0 = { ...t.g }, ratio = g0.h / g0.w;
+  const cx0 = g0.x + g0.w / 2, cy0 = g0.y + g0.h / 2;
+  const d0 = Math.hypot(p0.x - cx0, p0.y - cy0) || 1;
+  const op = !hd ? 'move' : hd.classList.contains('turn') ? 'turn' : 'size';
+  const dir = hd ? ([...hd.classList].find(c => /^(nw|ne|sw|se|n|s|e|w)$/.test(c)) || '') : '';
+  const sx = dir.includes('e') ? 1 : dir.includes('w') ? -1 : 0, sy = dir.includes('s') ? 1 : dir.includes('n') ? -1 : 0;
+  const lines = snapTargets(t.el);
+  t.el.classList.add('still');   // 끄는 동안 등장·둥실둥실 애니메이션을 멈춘다
+  if (op !== 'turn') showSnapHint(true);
+
+  const move = ev => {
+    const p = P(ev), dx = p.x - p0.x, dy = p.y - p0.y, g = t.g, snapOn = !ev.altKey, guides = [];
+    if (op === 'move') {
+      g.x = g0.x + dx; g.y = g0.y + dy;
+      if (snapOn) {
+        const b = bboxOf(g);
+        const mx = nearest([b.l, b.cx, b.r], lines.xs), my = nearest([b.t, b.cy, b.b], lines.ys);
+        if (mx) { g.x += mx.d; guides.push(['v', mx.line]); }
+        if (my) { g.y += my.d; guides.push(['h', my.line]); }
+      }
+    } else if (op === 'turn') {
+      let a = Math.atan2(p.y - cy0, p.x - cx0) * 180 / Math.PI + 90;
+      if (ev.shiftKey) a = Math.round(a / 15) * 15;
+      g.rot = ((Math.round(a) % 360) + 540) % 360 - 180;
+    } else if (t.uniform) {
+      // 그림·스티커: 가운데를 기준으로 비율을 지켜 크기를 바꾼다
+      g.w = clamp(Math.round(g0.w * Math.hypot(p.x - cx0, p.y - cy0) / d0), 40, W);
+      g.h = g.w * ratio; g.x = cx0 - g.w / 2; g.y = cy0 - g.h / 2;
+    } else {
+      // 상자: 잡은 변·모서리만 움직이고 반대편은 그대로 둔다 (회전한 상태면 회전한 축 기준)
+      const a = g0.rot * Math.PI / 180, cos = Math.cos(a), sin = Math.sin(a);
+      const lx = dx * cos + dy * sin, ly = -dx * sin + dy * cos;
+      const w = sx ? Math.max(60, g0.w + sx * lx) : g0.w, h = sy ? Math.max(40, g0.h + sy * ly) : g0.h;
+      const ox = sx * (w - g0.w) / 2, oy = sy * (h - g0.h) / 2;
+      const cx = cx0 + ox * cos - oy * sin, cy = cy0 + ox * sin + oy * cos;
+      g.w = w; g.h = h; g.x = cx - w / 2; g.y = cy - h / 2;
+      if (snapOn && !g0.rot) {
+        if (sx) {
+          const m = nearest([sx > 0 ? g.x + g.w : g.x], lines.xs);
+          if (m) { if (sx > 0) g.w += m.d; else { g.x += m.d; g.w -= m.d; } guides.push(['v', m.line]); }
+        }
+        if (sy) {
+          const m = nearest([sy > 0 ? g.y + g.h : g.y], lines.ys);
+          if (m) { if (sy > 0) g.h += m.d; else { g.y += m.d; g.h -= m.d; } guides.push(['h', m.line]); }
+        }
+      }
+    }
+    // 가운데가 슬라이드 밖으로 나가지 않게 해서 잃어버리지 않게 한다
+    g.x = clamp(g.x, -g.w / 2, W - g.w / 2);
+    g.y = clamp(g.y, -g.h / 2, H - g.h / 2);
+    applyGeom(t, op);
+    drawGuides(guides);
+  };
+  const end = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    drawGuides([]); showSnapHint(false);
+    t.el.classList.remove('still');
+    commitGeom(t, op);
+    save(); refreshThumb(); renderCtx();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+}
+// 끄는 동안 화면에 바로 적용한다. 상자 크기를 바꾸면 개체를 다시 그려 안의 배치와 글자 크기를 다시 맞춘다.
+function applyGeom(t, op) {
+  const g = t.g;
+  if (t.kind === 'sticker') {
+    t.el.style.left = g.x + 'px'; t.el.style.top = g.y + 'px'; t.el.style.width = g.w + 'px';
+    t.el.querySelector('.rot').style.transform = `rotate(${g.rot}deg)`;
+    return;
+  }
+  if (op === 'size' && !t.uniform) {
+    const node = makeObjNode({ ...t.o, ...g });
+    node.classList.add('sel', 'still');
+    t.el.replaceWith(node);
+    t.el = node;
+    fitText(node);
+    return;
+  }
+  t.el.style.left = g.x + 'px'; t.el.style.top = g.y + 'px'; t.el.style.width = g.w + 'px';
+  t.el.style.transform = g.rot ? `rotate(${g.rot}deg)` : '';
+}
+function commitGeom(t, op) {
+  const g = t.g, r = Math.round;
+  if (t.kind === 'sticker') {
+    Object.assign(t.data, { x: r(g.x), y: r(g.y), w: r(g.w), rot: g.rot });
+    placeSticker(t.el, t.data);
+    return;
+  }
+  const patch = { x: r(g.x), y: r(g.y), rot: g.rot || null };
+  if (op === 'size') { patch.w = r(g.w); if (!t.uniform) patch.h = r(g.h); }
+  setLayout(t.id, patch);
+}
+
+/* ===== 스티커 ===== */
 // 스티커를 고르거나 추가하면 버튼·글자 칸에 남은 포커스를 풀어서 화살표·Delete가 스티커에 가게 한다
 function releaseFocus() {
   const a = document.activeElement;
@@ -660,6 +848,36 @@ function nudgeSticker(dx, dy) {
   st.classList.remove('pop', 'float'); st.style.animation = 'none';
   placeSticker(st, s);
   save(); refreshThumb();
+}
+
+/* ===== 형태 개체 조작 ===== */
+function objOp(kind, id = selO) {
+  if (!id) return;
+  if (kind === 'unrotate') setLayout(id, { rot: null });
+  else if (kind === 'reset') { const s = deck.slides[cur]; if (s.layout) { delete s.layout[id]; if (!Object.keys(s.layout).length) delete s.layout; } }
+  else if (kind === 'delete') { setLayout(id, { hidden: true }); selO = null; activeText = null; }
+  save(); redraw(kind !== 'delete');
+  if (kind !== 'delete') selectObj(id);
+}
+function nudgeObj(dx, dy) {
+  const o = objGeom(selO), el = objEl(selO);
+  if (!o || !el) return;
+  const x = Math.round(clamp(o.x + dx, -o.w / 2, W - o.w / 2)), y = Math.round(clamp(o.y + dy, -(o.h || 0) / 2, H - (o.h || 0) / 2));
+  setLayout(selO, { x, y });
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+  save(); refreshThumb();
+}
+// 이 장 전체: 원래 배치로(옮기고 숨긴 것 모두 되돌림) / 숨긴 개체만 다시 보이기
+function slideLayoutOp(kind) {
+  const s = deck.slides[cur];
+  if (!s.layout) return;
+  if (kind === 'reset') delete s.layout;
+  else for (const id of Object.keys(s.layout)) setLayout(id, { hidden: null });
+  selO = null;
+  save(); redraw();
+}
+function hiddenCount(slide) {
+  return Object.values(slide.layout || {}).filter(v => v.hidden).length;
 }
 
 /* ===== 슬라이드 조작 ===== */
@@ -767,7 +985,15 @@ function buildCtx(bar) {
         ctxButton('칸 +', '오른쪽에 칸 더하기', () => tableOp('addCol', at)),
         ctxButton('칸 −', '이 칸 빼기', () => tableOp('delCol', at))));
     }
-    // 렌더 후에도 서식 버튼 상태가 바뀌므로 선택이 바뀔 때마다 다시 그릴 필요는 없다
+    const ob = el.closest('.obj');
+    if (ob) bar.append(objGroup('상자', ob.dataset.oid, slide));
+    return;
+  }
+
+  // 형태 개체를 골랐을 때 (그림, 장식, 그림 칸, 글자를 편집하지 않는 상자)
+  if (selO) {
+    if (slide.type === 'image' && selO === 'slot') bar.append(slotGroup(slide));
+    bar.append(objGroup('개체', selO, slide));
     return;
   }
 
@@ -798,22 +1024,68 @@ function buildCtx(bar) {
     bar.append(ctxGroup('표', ctxButton('줄 +', '끝에 줄 더하기', () => tableOp('addRow')), ctxButton('줄 −', '마지막 줄 빼기', () => tableOp('delRow')),
       ctxButton('칸 +', '끝에 칸 더하기', () => tableOp('addCol')), ctxButton('칸 −', '마지막 칸 빼기', () => tableOp('delCol'))));
   }
-  if (slide.type === 'image') {
-    bar.append(ctxGroup('그림', ctxButton('그림 고르기', '그림 칸에 넣을 그림 고르기', () => openStickerPanel(true)),
-      ctxButton('그림 빼기', '그림 칸 비우기', () => { delete slide.img; save(); redraw(); })));
+  if (slide.type === 'image') bar.append(slotGroup(slide));
+  if (slide.layout) {
+    const hid = hiddenCount(slide);
+    bar.append(ctxGroup('이 장',
+      ...(hid ? [ctxButton(`숨긴 개체 보이기 (${hid})`, '삭제한 개체를 다시 보이기', () => slideLayoutOp('show'))] : []),
+      ctxButton('원래 배치로', '이 장에서 옮기고 바꾸고 삭제한 개체를 모두 형태 기본으로 되돌리기', () => slideLayoutOp('reset'))));
   }
   const tip = document.createElement('span');
   tip.className = 'ctx-label';
-  tip.textContent = '글자를 누르면 글자 도구, 스티커를 누르면 스티커 도구가 여기에 나와요';
+  tip.textContent = '글자·그림·스티커를 누르면 그에 맞는 도구가 여기에 나와요';
   bar.append(tip);
+}
+// 형태 개체 하나의 도구: 회전 0°, 원래 위치로, 삭제
+function objGroup(label, id, slide) {
+  const o = objGeom(id), lay = (slide.layout || {})[id];
+  const moved = lay && ['x', 'y', 'w', 'h', 'rot'].some(k => k in lay);
+  return ctxGroup(label,
+    ...(o && o.rot ? [ctxButton('↺ 회전 0°', `지금 ${o.rot}°`, () => objOp('unrotate', id))] : []),
+    ...(moved ? [ctxButton('원래 위치로', '이 개체만 형태 기본 위치·크기로', () => objOp('reset', id))] : []),
+    ctxButton('삭제', '이 개체 삭제 (Delete) · [원래 배치로]나 [숨긴 개체 보이기]로 되살릴 수 있어요', () => objOp('delete', id), 'danger'));
+}
+function slotGroup(slide) {
+  return ctxGroup('그림', ctxButton('그림 고르기', '그림 칸에 넣을 그림 고르기 (그림 칸을 두 번 눌러도 돼요)', () => openStickerPanel(true)),
+    ctxButton('그림 빼기', '그림 칸 비우기', () => { delete slide.img; save(); redraw(true); }));
 }
 
 /* ===== 떠 있는 패널 ===== */
+let stickerTab = 'basic';
 function openStickerPanel(forSlot) {
   slotPick = !!forSlot;
   $('stickerPanelTitle').textContent = slotPick ? '그림 칸에 넣을 그림' : '스티커';
   $('settingsPanel').hidden = true;
+  $('aboutPop').hidden = true;
   $('stickerPanel').hidden = false;
+  renderStickerGrid();
+}
+// [기본] 8개와 [추가](덱을 만들며 새로 생성한 그림)를 탭으로 나눠 보여 준다
+function renderStickerGrid() {
+  document.querySelectorAll('#stickerTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === stickerTab));
+  const grid = $('stickerGrid');
+  const list = STICKERS.filter(st => st.group === stickerTab);
+  grid.replaceChildren(...list.map(st => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const img = new Image();
+    img.src = st.src; img.alt = '';
+    img.onerror = () => b.remove();   // 아직 생성되지 않은 스티커는 숨김
+    const label = document.createElement('span');
+    label.textContent = st.name;
+    b.setAttribute('aria-label', st.name);
+    b.title = st.name;
+    b.append(img, label);
+    b.addEventListener('click', () => {
+      if (slotPick) {
+        deck.slides[cur].img = st.src;
+        $('stickerPanel').hidden = true;
+        save(); redraw();
+      } else addSticker(st.src, st.w);
+    });
+    return b;
+  }));
+  $('stickerEmpty').hidden = list.length > 0;
 }
 function syncSettings() {
   const s = deck.settings;
@@ -882,18 +1154,20 @@ document.addEventListener('keydown', e => {
   const typing = editing || /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/.test(e.target.tagName);
   if (e.key === 'Escape') {
     if (typing) { e.target.blur(); return; }
-    if (!$('stickerPanel').hidden || !$('settingsPanel').hidden) { $('stickerPanel').hidden = $('settingsPanel').hidden = true; return; }
-    if (sel >= 0) { selectSticker(-1); return; }
+    if (!$('stickerPanel').hidden || !$('settingsPanel').hidden || !$('aboutPop').hidden) {
+      $('stickerPanel').hidden = $('settingsPanel').hidden = $('aboutPop').hidden = true; return;
+    }
+    if (sel >= 0 || selO) { selectNone(); return; }
     if (mode === 'present') endPresent();
     return;
   }
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-  // 스티커를 고른 상태: 화살표로 옮기고 Delete/Backspace로 지운다
-  if (mode === 'edit' && sel >= 0) {
+  // 스티커나 개체를 고른 상태: 화살표로 옮기고 Delete/Backspace로 지운다
+  if (mode === 'edit' && (sel >= 0 || selO)) {
     const step = e.shiftKey ? 50 : 10;
     const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-    if (mv) { e.preventDefault(); nudgeSticker(...mv); return; }
-    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); stickerOp('delete'); return; }
+    if (mv) { e.preventDefault(); sel >= 0 ? nudgeSticker(...mv) : nudgeObj(...mv); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); sel >= 0 ? stickerOp('delete') : objOp('delete'); return; }
   }
   switch (e.key) {
     case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ': case 'Enter':
@@ -921,6 +1195,7 @@ function buildToolbar() {
   typeSel.addEventListener('change', () => {
     const s = deck.slides[cur];
     s.type = typeSel.value;
+    delete s.layout;   // 개체 배치는 형태마다 다르므로 형태를 바꾸면 기본 배치로
     if (s.type === 'table' && !s.table) s.table = '항목 | 내용\n | ';
     save(); redraw();
   });
@@ -944,26 +1219,19 @@ function buildToolbar() {
     else $('stickerPanel').hidden = true;
   });
   $('btnStickerClose').addEventListener('click', () => { $('stickerPanel').hidden = true; });
-  const grid = $('stickerGrid');
-  STICKERS.forEach(st => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    const img = new Image();
-    img.src = st.src; img.alt = '';
-    img.onerror = () => b.remove();   // 아직 생성되지 않은 스티커는 숨김
-    const label = document.createElement('span');
-    label.textContent = st.name;
-    b.setAttribute('aria-label', st.name);
-    b.title = st.name;
-    b.append(img, label);
-    b.addEventListener('click', () => {
-      if (slotPick) {
-        deck.slides[cur].img = st.src;
-        $('stickerPanel').hidden = true;
-        save(); redraw();
-      } else addSticker(st.src, st.w);
-    });
-    grid.appendChild(b);
+  document.querySelectorAll('#stickerTabs button').forEach(b => b.addEventListener('click', () => { stickerTab = b.dataset.tab; renderStickerGrid(); }));
+  // 그림 칸은 두 번 누르면 그림 고르기 (한 번 누르면 개체 선택·이동)
+  host.addEventListener('dblclick', e => {
+    if (mode === 'edit' && e.target.closest('[data-slot]')) openStickerPanel(true);
+  });
+  // 정보 팝업
+  $('aboutVersion').textContent = `Any-Slide v${APP_VERSION}`;
+  $('btnAbout').addEventListener('click', e => {
+    e.stopPropagation();
+    $('aboutPop').hidden = !$('aboutPop').hidden;
+  });
+  document.addEventListener('pointerdown', e => {
+    if (!$('aboutPop').hidden && !e.target.closest('#aboutPop, #btnAbout')) $('aboutPop').hidden = true;
   });
 
   // 설정 패널

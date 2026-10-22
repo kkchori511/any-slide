@@ -29,6 +29,7 @@
       <button id="btnImport" title="JSON 파일 불러오기">불러오기</button>
       <button id="btnReset" class="danger" title="처음 상태로">초기화</button>
     </div>
+    <button id="btnAbout" type="button" title="앱 정보">Any-Slide</button>
   </div>
   <!-- 글자를 고르면 글자 도구, 스티커를 고르면 스티커 도구, 아니면 이 장의 옵션 -->
   <div id="ctxbar" aria-label="선택한 것의 도구"></div>
@@ -43,7 +44,12 @@
 
 <div id="stickerPanel" class="float-panel" hidden>
   <div class="panel-title"><span id="stickerPanelTitle">스티커</span> <button id="btnStickerClose" aria-label="닫기">✕</button></div>
+  <div id="stickerTabs" class="tabs" role="tablist">
+    <button type="button" data-tab="basic" role="tab">기본</button>
+    <button type="button" data-tab="extra" role="tab">추가</button>
+  </div>
   <div id="stickerGrid"></div>
+  <p id="stickerEmpty" class="empty-note" hidden>아직 추가한 그림이 없어요. 덱을 만들며 새로 생성한 그림이 여기에 들어와요.</p>
 </div>
 
 <div id="settingsPanel" class="float-panel" hidden>
@@ -58,6 +64,11 @@
   <label class="set-row">글자 등장 <select id="selTextAnim"></select></label>
   <label class="set-row">그림 등장 <span class="check"><input id="chkImgAnim" type="checkbox"> 켜기</span></label>
   <label class="set-row">둥실둥실 <span class="check"><input id="chkFloat" type="checkbox"> 켜기</span></label>
+</div>
+
+<div id="aboutPop" class="float-panel" hidden role="dialog" aria-label="앱 정보">
+  <strong id="aboutVersion">Any-Slide</strong>
+  <p>제작 : 김한량 디지털 공방</p>
 </div>
 
 <div id="hud" aria-live="polite"></div>
