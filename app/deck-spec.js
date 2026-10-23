@@ -209,13 +209,33 @@ function placedObjects(slide, withHidden) {
   }).filter(o => withHidden || !o.hidden);
 }
 
+/* ===== 개체 크기 제한 =====
+   최소 크기는 안의 배치(제목·내용 칸)가 바탕 안에 들어가는 크기다. 최대 크기와 위치 제한은 덱 검증(sanitize)과 앱이 같이 쓴다. */
+const OBJ_MAX = { w: 2 * W, h: 2 * H };
+function objMinSize(o) {
+  switch (o.k) {
+    case 'card': return o.variant === 'compare' ? { w: 200, h: 290 } : o.variant === 'steps' ? { w: 180, h: 400 } : { w: 180, h: 220 };
+    case 'bubble': return { w: 390, h: 170 };
+    case 'codebox': return { w: 200, h: 150 };
+    case 'slot': return { w: 120, h: 120 };
+    case 'img': case 'deco': return { w: 40, h: 40 };
+    default: return { w: 60, h: 40 };
+  }
+}
+// 가운데가 슬라이드 밖으로 나가지 않게 한다 (그림은 실제 높이 h를 넘겨야 한다)
+function clampPos(x, y, w, h) {
+  return { x: Math.min(W - w / 2, Math.max(-w / 2, x)), y: Math.min(H - h / 2, Math.max(-h / 2, y)) };
+}
+
 // 묶음 개체 안의 배치 (개체 왼쪽 위 기준). 개체 크기를 바꾸면 안의 배치도 따라 바뀐다.
+// 크기가 최소 크기보다 작게 들어와도 칸 폭·높이가 0 이하가 되지 않게 한다.
 function cardInner(o) {
-  const { w, h } = o;
-  if (o.variant === 'compare') return { head: { x: 50, y: 40, w: w - 100, h: 130 }, body: { x: 50, y: 190, w: w - 100, h: Math.max(60, h - 230) } };
-  if (o.variant === 'steps') return { badge: { x: w / 2 - 48, y: 36 }, head: { x: 40, y: 150, w: w - 80, h: 130 }, body: { x: 40, y: 300, w: w - 80, h: Math.max(60, h - 336) } };
+  const w = Math.max(o.w, 120), h = Math.max(o.h, 120);
+  const cw = pad => Math.max(40, w - pad);
+  if (o.variant === 'compare') return { head: { x: 50, y: 40, w: cw(100), h: 130 }, body: { x: 50, y: 190, w: cw(100), h: Math.max(40, h - 230) } };
+  if (o.variant === 'steps') return { badge: { x: w / 2 - 48, y: 36 }, head: { x: 40, y: 150, w: cw(80), h: 130 }, body: { x: 40, y: 300, w: cw(80), h: Math.max(40, h - 336) } };
   const small = h < 400, top = small ? 34 : 44, headH = small ? 80 : 130, bodyY = top + headH + (small ? 10 : 20);
-  return { head: { x: 40, y: top, w: w - 80, h: headH }, body: { x: 40, y: bodyY, w: w - 80, h: Math.max(60, h - bodyY - 36) } };
+  return { head: { x: 40, y: top, w: cw(80), h: headH }, body: { x: 40, y: bodyY, w: cw(80), h: Math.max(40, h - bodyY - 36) } };
 }
 function bubbleInner(o) { return { x: 85, y: 65, w: Math.max(100, o.w - 290), h: Math.max(60, o.h - 105) }; }
 function codeInner(o) { return { x: 50, y: 45, w: Math.max(100, o.w - 100), h: Math.max(60, o.h - 90) }; }
@@ -413,16 +433,16 @@ function sanitize(d) {
       }
       // 개체 배치: 이 형태에 있는 개체 id만, 숫자는 범위 안으로
       if (s.layout && typeof s.layout === 'object') {
-        const ids = new Set(expandObjects(out, true).map(o => o.id));
+        const objs = new Map(expandObjects(out, true).map(o => [o.id, o]));
         const layout = {};
-        for (const id of ids) {
+        for (const [id, base] of objs) {
           const v = s.layout[id];
           if (!v || typeof v !== 'object') continue;
-          const o = {};
+          const o = {}, min = objMinSize(base);
           if (Number.isFinite(v.x)) o.x = int(v.x, -W, 2 * W, 0);
           if (Number.isFinite(v.y)) o.y = int(v.y, -H, 2 * H, 0);
-          if (Number.isFinite(v.w)) o.w = int(v.w, 20, 2 * W, 200);
-          if (Number.isFinite(v.h)) o.h = int(v.h, 20, 2 * H, 200);
+          if (Number.isFinite(v.w)) o.w = int(v.w, min.w, OBJ_MAX.w, base.w);
+          if (Number.isFinite(v.h)) o.h = int(v.h, min.h, OBJ_MAX.h, base.h || min.h);
           if (Number.isFinite(v.rot)) o.rot = int(v.rot, -180, 180, 0);
           if (v.hidden === true) o.hidden = true;
           if (Object.keys(o).length) layout[id] = o;
@@ -449,6 +469,6 @@ function sanitize(d) {
 globalThis.DeckSpec = {
   APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
   TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc,
-  expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign,
+  OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign,
   parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
 };

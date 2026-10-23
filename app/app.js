@@ -389,6 +389,7 @@ function fit() {
    opts.tr: { kind, dur, back } 이면 새 장을 이전 장 위로 겹쳐 들이고 끝나면 이전 장을 지운다.
    opts.still: 편집 중 다시 그리기 — 등장 애니메이션 없이 그린다. */
 function renderStage(opts = {}) {
+  finishDrag();
   const tr = opts.tr && opts.tr.kind !== 'none' ? opts.tr : null;
   const el = makeSlide(deck.slides[cur], { editable: mode === 'edit', animate: !opts.still, t0: tr ? tr.dur / 2 : 0 });
   host.querySelectorAll(':scope > .slide.tr-out').forEach(x => x.remove());
@@ -634,8 +635,7 @@ function placeSticker(st, data) {
 }
 // 개체의 현재 위치·크기 (형태 기본값 위에 이 장의 layout을 덮어쓴 값)
 function objGeom(id) { return placedObjects(deck.slides[cur], true).find(o => o.id === id); }
-function setLayout(id, patch) {
-  const s = deck.slides[cur];
+function setLayout(id, patch, s = deck.slides[cur]) {
   s.layout ||= {};
   const v = { ...(s.layout[id] || {}), ...patch };
   for (const k of Object.keys(v)) if (v[k] === null) delete v[k];
@@ -709,12 +709,21 @@ host.addEventListener('pointerdown', e => {
     selectObj(id);
     t = { el: ob, kind: 'obj', id, o, uniform: o.k === 'img', g: { x: o.x, y: o.y, w: o.w, h: o.k === 'img' ? ob.offsetHeight : o.h, rot: o.rot || 0 } };
   }
+  t.slide = deck.slides[cur];   // 끄는 동안 장이 바뀌어도 이 장에 저장한다
   startDrag(e, t, hd);
 });
 
+// 진행 중인 끌기는 하나뿐이다. 장을 넘기거나 다시 그리기 전에 먼저 마무리한다(renderStage에서 부른다).
+let activeDrag = null;
+function finishDrag() { if (activeDrag) activeDrag(); }
+
 function startDrag(e, t, hd) {
+  finishDrag();
+  const pid = e.pointerId;   // 처음 누른 포인터만 따른다 (다른 손가락·펜 입력은 무시)
   const P = ev => { const r = host.getBoundingClientRect(); return { x: (ev.clientX - r.left) / scale, y: (ev.clientY - r.top) / scale }; };
   const p0 = P(e), g0 = { ...t.g }, ratio = g0.h / g0.w;
+  const min = t.kind === 'sticker' ? { w: 40, h: 40 } : objMinSize(t.o);
+  const maxW = t.kind === 'sticker' ? W : OBJ_MAX.w;
   const cx0 = g0.x + g0.w / 2, cy0 = g0.y + g0.h / 2;
   const d0 = Math.hypot(p0.x - cx0, p0.y - cy0) || 1;
   const op = !hd ? 'move' : hd.classList.contains('turn') ? 'turn' : 'size';
@@ -722,10 +731,13 @@ function startDrag(e, t, hd) {
   const sx = dir.includes('e') ? 1 : dir.includes('w') ? -1 : 0, sy = dir.includes('s') ? 1 : dir.includes('n') ? -1 : 0;
   const lines = snapTargets(t.el);
   t.el.classList.add('still');   // 끄는 동안 등장·둥실둥실 애니메이션을 멈춘다
-  if (op !== 'turn') showSnapHint(true);
+  // 맞춤이 되는 조작(이동, 회전하지 않은 상자의 크기 조절)에서만 ⌥ 안내를 띄운다
+  if (op === 'move' || (op === 'size' && !t.uniform && !g0.rot)) showSnapHint(true);
 
   const move = ev => {
-    const p = P(ev), dx = p.x - p0.x, dy = p.y - p0.y, g = t.g, snapOn = !ev.altKey, guides = [];
+    if (ev.pointerId !== pid) return;
+    const p = P(ev), dx = p.x - p0.x, dy = p.y - p0.y, g = t.g, snapOn = !ev.altKey;
+    let guides = [];
     if (op === 'move') {
       g.x = g0.x + dx; g.y = g0.y + dy;
       if (snapOn) {
@@ -740,17 +752,19 @@ function startDrag(e, t, hd) {
       g.rot = ((Math.round(a) % 360) + 540) % 360 - 180;
     } else if (t.uniform) {
       // 그림·스티커: 가운데를 기준으로 비율을 지켜 크기를 바꾼다
-      g.w = clamp(Math.round(g0.w * Math.hypot(p.x - cx0, p.y - cy0) / d0), 40, W);
+      g.w = clamp(Math.round(g0.w * Math.hypot(p.x - cx0, p.y - cy0) / d0), min.w, maxW);
       g.h = g.w * ratio; g.x = cx0 - g.w / 2; g.y = cy0 - g.h / 2;
     } else {
       // 상자: 잡은 변·모서리만 움직이고 반대편은 그대로 둔다 (회전한 상태면 회전한 축 기준)
       const a = g0.rot * Math.PI / 180, cos = Math.cos(a), sin = Math.sin(a);
       const lx = dx * cos + dy * sin, ly = -dx * sin + dy * cos;
-      const w = sx ? Math.max(60, g0.w + sx * lx) : g0.w, h = sy ? Math.max(40, g0.h + sy * ly) : g0.h;
+      // 크기는 개체 종류의 최소 크기(안의 칸이 들어가는 크기)와 최대 크기 사이로
+      const w = sx ? clamp(g0.w + sx * lx, min.w, OBJ_MAX.w) : g0.w, h = sy ? clamp(g0.h + sy * ly, min.h, OBJ_MAX.h) : g0.h;
       const ox = sx * (w - g0.w) / 2, oy = sy * (h - g0.h) / 2;
       const cx = cx0 + ox * cos - oy * sin, cy = cy0 + ox * sin + oy * cos;
       g.w = w; g.h = h; g.x = cx - w / 2; g.y = cy - h / 2;
       if (snapOn && !g0.rot) {
+        const before = { ...g };
         if (sx) {
           const m = nearest([sx > 0 ? g.x + g.w : g.x], lines.xs);
           if (m) { if (sx > 0) g.w += m.d; else { g.x += m.d; g.w -= m.d; } guides.push(['v', m.line]); }
@@ -759,26 +773,36 @@ function startDrag(e, t, hd) {
           const m = nearest([sy > 0 ? g.y + g.h : g.y], lines.ys);
           if (m) { if (sy > 0) g.h += m.d; else { g.y += m.d; g.h -= m.d; } guides.push(['h', m.line]); }
         }
+        // 맞춤 때문에 최소 크기보다 작아지면 맞춤을 하지 않는다
+        if (g.w < min.w || g.h < min.h) { Object.assign(g, before); guides = []; }
       }
     }
-    // 가운데가 슬라이드 밖으로 나가지 않게 해서 잃어버리지 않게 한다
-    g.x = clamp(g.x, -g.w / 2, W - g.w / 2);
-    g.y = clamp(g.y, -g.h / 2, H - g.h / 2);
+    // 가운데가 슬라이드 밖으로 나가지 않게 해서 잃어버리지 않게 한다. 이 제한으로 위치가 바뀌면 그 방향의 보조선은 지운다.
+    const c = clampPos(g.x, g.y, g.w, g.h);
+    if (c.x !== g.x) guides = guides.filter(([d]) => d !== 'v');
+    if (c.y !== g.y) guides = guides.filter(([d]) => d !== 'h');
+    g.x = c.x; g.y = c.y;
     applyGeom(t, op);
     drawGuides(guides);
   };
-  const end = () => {
+  // 손을 떼거나, 취소되거나, 창이 포커스를 잃거나, 장이 바뀌면 같은 방식으로 한 번만 마무리한다
+  const end = ev => {
+    if (ev && ev.pointerId !== undefined && ev.pointerId !== pid) return;
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', end);
     window.removeEventListener('pointercancel', end);
+    window.removeEventListener('blur', end);
+    activeDrag = null;
     drawGuides([]); showSnapHint(false);
     t.el.classList.remove('still');
     commitGeom(t, op);
     save(); refreshThumb(); renderCtx();
   };
+  activeDrag = end;
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', end);
   window.addEventListener('pointercancel', end);
+  window.addEventListener('blur', end);
 }
 // 끄는 동안 화면에 바로 적용한다. 상자 크기를 바꾸면 개체를 다시 그려 안의 배치와 글자 크기를 다시 맞춘다.
 function applyGeom(t, op) {
@@ -808,7 +832,7 @@ function commitGeom(t, op) {
   }
   const patch = { x: r(g.x), y: r(g.y), rot: g.rot || null };
   if (op === 'size') { patch.w = r(g.w); if (!t.uniform) patch.h = r(g.h); }
-  setLayout(t.id, patch);
+  setLayout(t.id, patch, t.slide);
 }
 
 /* ===== 스티커 ===== */
@@ -862,7 +886,9 @@ function objOp(kind, id = selO) {
 function nudgeObj(dx, dy) {
   const o = objGeom(selO), el = objEl(selO);
   if (!o || !el) return;
-  const x = Math.round(clamp(o.x + dx, -o.w / 2, W - o.w / 2)), y = Math.round(clamp(o.y + dy, -(o.h || 0) / 2, H - (o.h || 0) / 2));
+  const h = o.k === 'img' ? (el.offsetHeight || o.w) : o.h;   // 그림은 높이가 정해져 있지 않으므로 실제 그려진 높이
+  const c = clampPos(o.x + dx, o.y + dy, o.w, h);
+  const x = Math.round(c.x), y = Math.round(c.y);
   setLayout(selO, { x, y });
   el.style.left = x + 'px'; el.style.top = y + 'px';
   save(); refreshThumb();
@@ -965,15 +991,19 @@ function buildCtx(bar) {
       setBoxStyle(el, 'scale', Math.min(2, Math.max(0.5, Math.round(k * 100) / 100)));
     };
     // 정렬: 형태의 기본 정렬과 같으면 기본으로(null), 다르면 그 값을 저장한다. 가운데가 기본인 칸의 왼쪽도 저장된다.
+    // 표·상자 내용처럼 글 길이로 자동 정렬되는 칸은 직접 고른 정렬을 항상 저장하고, [자동]으로 되돌린다.
+    const auto = !!el.dataset.auto;
     const align0 = el.dataset.align0 || 'left';
-    const alignNow = st.align || align0;
+    const alignNow = st.align || (auto ? '' : align0);
+    const pick = a => () => setBoxStyle(el, 'align', !auto && a === align0 ? null : a);
     bar.append(
       ctxGroup('크기',
         ctxButton('A−', '글자 작게', step(-0.1)),
         ctxButton(`${Math.round((st.scale || 1) * 100)}%`, '기본 크기로', () => setBoxStyle(el, 'scale', null)),
         ctxButton('A+', '글자 크게', step(0.1))),
-      ctxGroup('정렬', ...[['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽']].map(([a, l]) =>
-        ctxButton(l, `${l} 정렬`, () => setBoxStyle(el, 'align', a === align0 ? null : a), alignNow === a ? 'on' : ''))),
+      ctxGroup('정렬',
+        ...(auto ? [ctxButton('자동', '글 길이에 맞춰 자동 정렬 (짧으면 가운데, 길면 왼쪽)', () => setBoxStyle(el, 'align', null), st.align ? '' : 'on')] : []),
+        ...[['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽']].map(([a, l]) => ctxButton(l, `${l} 정렬`, pick(a), alignNow === a ? 'on' : ''))),
       ctxGroup('줄 간격', ...[[1.2, '좁게'], [null, '보통'], [1.9, '넓게']].map(([v, l]) =>
         ctxButton(l, `줄 간격 ${l}`, () => setBoxStyle(el, 'lh', v), (st.lh || null) === v ? 'on' : ''))),
     );
@@ -1062,7 +1092,10 @@ function openStickerPanel(forSlot) {
 }
 // [기본] 8개와 [추가](덱을 만들며 새로 생성한 그림)를 탭으로 나눠 보여 준다
 function renderStickerGrid() {
-  document.querySelectorAll('#stickerTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === stickerTab));
+  document.querySelectorAll('#stickerTabs button').forEach(b => {
+    b.classList.toggle('on', b.dataset.tab === stickerTab);
+    b.setAttribute('aria-selected', b.dataset.tab === stickerTab ? 'true' : 'false');
+  });
   const grid = $('stickerGrid');
   const list = STICKERS.filter(st => st.group === stickerTab);
   grid.replaceChildren(...list.map(st => {

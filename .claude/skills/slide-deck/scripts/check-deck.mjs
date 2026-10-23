@@ -13,7 +13,7 @@ if (!file) { console.error('사용법: node check-deck.mjs <덱.json>'); process
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(root, 'app/deck-spec.js'), 'utf8'), ctx);
-const { TYPES, FIELDS, sanitize, fieldsOf, textBoxes, stripMarkup, parseTable } = ctx.DeckSpec;
+const { W, H, TYPES, FIELDS, sanitize, fieldsOf, textBoxes, placedObjects, stripMarkup, parseTable } = ctx.DeckSpec;
 
 // app/style.css 의 글자 크기(--fs)와 줄 간격. CSS를 바꾸면 여기도 맞춘다.
 const STYLE = {
@@ -48,6 +48,11 @@ raw.slides.forEach((s, i) => {
   const used = new Set(fieldsOf(slide));
   for (const f of FIELDS) if (typeof s[f] === 'string' && s[f] && !used.has(f)) warns.push(`${no}: "${f}" 칸은 이 형태${slide.count ? `(${slide.count}개)` : ''}에 없어서 화면에 안 나옴`);
   if (s.type === 'image' && !slide.img) warns.push(`${no}: 그림 칸이 비어 있음 (img)`);
+  // layout으로 옮긴 개체의 가운데가 화면 밖이면 안 보인다 (그림은 높이를 폭으로 어림)
+  for (const o of placedObjects(slide)) {
+    const cx = o.x + o.w / 2, cy = o.y + (o.h || o.w) / 2;
+    if (cx < 0 || cx > W || cy < 0 || cy > H) warns.push(`${no}: "${o.id}" 개체가 화면 밖에 있음 (layout 확인)`);
+  }
 
   // 글자 칸은 앱과 같은 규칙(deck-spec.js textBoxes)으로 구한다: 개체를 옮기거나 크기를 바꾼 layout도 반영된다
   for (const b of textBoxes(slide)) {
