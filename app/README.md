@@ -1,10 +1,12 @@
 # Any Slide 앱
 
-발표용 슬라이드 웹 앱. 빌드 없이 `index.html`을 브라우저(Chrome 권장)로 열면 된다.
+발표용 슬라이드 웹 앱. 빌드 없이 `Any-Slide.html`을 브라우저(Chrome·Edge 권장)로 열면 된다. 로컬에서 쓰는 앱이라 웹 서버나 인터넷이 필요 없다.
 
 ```sh
-open app/index.html
+open app/Any-Slide.html
 ```
+
+발표할 때는 덱마다 만든 **발표 폴더**(예: `~/Desktop/API_이용_앱_만들기_v1/`)의 `Any-Slide.html`을 연다. 폴더에 덱이 함께 들어 있어서 바로 그 덱이 열리고, 폴더째(또는 `Any-Slide.zip`으로) 다른 컴퓨터·윈도우로 옮겨도 그대로 쓸 수 있다.
 
 ## 사용법
 
@@ -14,7 +16,7 @@ open app/index.html
   - 끄는 동안 다른 개체와 슬라이드 가운데·여백선에 가까워지면 빨간 보조선과 함께 달라붙는다. ⌥(Alt)를 누른 채 끌면 맞춤 없이 움직인다.
   - 개체를 고르고 화살표로 10px(Shift: 50px)씩 옮기고 `Delete`로 삭제한다. 도구 줄의 [원래 위치로], [숨긴 개체 보이기], [원래 배치로]로 되돌린다.
   - 그림 칸은 두 번 누르면 그림을 고른다.
-- **정렬**: 표 머리 줄과 상자 제목은 가운데, 내용은 짧으면 가운데·길면 왼쪽으로 자동 정렬된다. 도구 줄로 바꾸면 그 값이 우선이다.
+- **정렬**: 표 머리 줄과 상자 제목은 가운데다. 나란히 놓인 상자와 표의 각 열은 정렬이 하나로 통일된다(하나라도 길면 모두 왼쪽, 모두 짧으면 모두 가운데). 도구 줄로 바꾸면 그 상자는 그 값이 우선이다.
 - **도구 줄**: 위쪽 두 번째 줄은 고른 것에 따라 바뀐다.
   - 글자를 고르면: 굵게(⌘B), 밑줄(⌘U), 형광펜, 글자 색, 칸 전체의 크기·정렬·줄 간격. 글자를 드래그해 고르면 그 부분만, 고르지 않으면 칸 전체에 적용된다.
   - 스티커를 고르면: 회전 0°, 뒤집기, 앞으로·뒤로, 복제, 둥실둥실, 삭제.
@@ -31,7 +33,7 @@ open app/index.html
 
 | 파일 | 역할 |
 | --- | --- |
-| `index.html` | 도구 모음(두 줄), 썸네일, 무대, 스티커·설정 패널 |
+| `Any-Slide.html` | 도구 모음(두 줄), 썸네일, 무대, 스티커·설정 패널 |
 | `style.css` | 화면 스타일, 등장 애니메이션, 장 전환 |
 | `deck-spec.js` | 슬라이드 형태(`TYPES`), 허용 스티커(`STICKERS`), 글자 색, 덱 설정, 서식 표기, 기본 덱, 덱 검증 |
 | `app.js` | 렌더링, 글자 서식 편집, 자동 맞춤, 스티커 조작, 장 전환, 발표 모드, 저장 |
@@ -43,8 +45,8 @@ open app/index.html
 
 ## 개발용 URL 해시
 
-- `index.html#s=3` : 3번 슬라이드로 연다.
-- `index.html#s=3&view` : 전체 화면 요청 없이 발표 화면으로 연다. 화면 캡처 확인에 쓴다.
+- `Any-Slide.html#s=3` : 3번 슬라이드로 연다.
+- `Any-Slide.html#s=3&view` : 전체 화면 요청 없이 발표 화면으로 연다. 화면 캡처 확인에 쓴다.
 
 ## 덱 파일로 내용 넣기
 
@@ -52,5 +54,7 @@ open app/index.html
 
 - 검사: `node .claude/skills/slide-deck/scripts/check-deck.mjs decks/<파일>.json`
 - 미리 보기(PNG): `node .claude/skills/slide-deck/scripts/preview-deck.mjs decks/<파일>.json <출력폴더>`
+- 발표 폴더 만들기: `node .claude/skills/slide-deck/scripts/pack-deck.mjs decks/<파일>.json --title "<제목>" [--dest ~/Desktop] [--zip]`
+- 텔레그램 다다비서봇으로 보내기(허락받은 뒤): `node .claude/skills/slide-deck/scripts/send-telegram.mjs <파일>`
 
 덱 규칙(슬라이드 형태, 허용 스티커, 검증)의 원본은 `app/deck-spec.js`다.

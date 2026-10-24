@@ -23,7 +23,7 @@ vm.runInContext(fs.readFileSync(path.join(appDir, 'deck-spec.js'), 'utf8'), ctx)
 let deck;
 try { deck = ctx.DeckSpec.sanitize(JSON.parse(fs.readFileSync(file, 'utf8'))); }
 catch (e) { console.error(`✘ 앱이 열 수 없는 덱: ${e.message}`); process.exit(1); }
-const html = fs.readFileSync(path.join(appDir, 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(appDir, 'Any-Slide.html'), 'utf8');
 // 앱이 시작하기 전에 덱을 브라우저 저장소에 넣는 임시 페이지 (앱과 같은 폴더여야 에셋 경로가 맞는다)
 const tmp = path.join(appDir, `_preview-${process.pid}.html`);
 // <script> 안에 넣는 문자열이므로 </script> 같은 글자가 스크립트를 끊지 않게 <, >, & 와 줄 구분 문자를 \u 표기로 바꾼다

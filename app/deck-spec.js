@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
@@ -280,6 +280,24 @@ function autoAlign(text) {
   if (lines.some(l => /^\s*([•\-·*]|\d+[.)])\s/.test(l))) return 'left';
   return lines.length <= 2 && lines.every(l => [...l].length <= 14) ? 'center' : 'left';
 }
+// 나란히 놓인 상자(카드·단계·비교)의 내용과 표의 각 열은 정렬을 하나로 맞춘다.
+// 묶음 안에 긴 글이나 목록이 하나라도 있으면 모두 왼쪽, 모두 짧으면 모두 가운데. 비어 있는 칸은 판단에서 뺀다.
+function groupAlign(texts) {
+  const filled = texts.filter(t => stripMarkup(t ?? '').trim());
+  return filled.some(t => autoAlign(t) === 'left') ? 'left' : 'center';
+}
+// 장의 자동 정렬 값: { fields: {상자 내용 필드: 정렬}, cols: [표 열별 정렬] }
+function slideAligns(slide) {
+  const bodies = placedObjects(slide).filter(o => o.k === 'card').map(o => o.body);
+  const a = groupAlign(bodies.map(f => slide[f]));
+  const fields = Object.fromEntries(bodies.map(f => [f, a]));
+  let cols = [];
+  if (TYPES[slide.type].objects.some(o => o.k === 'table')) {
+    const rows = parseTable(slide.table ?? '').slice(1);
+    cols = parseTable(slide.table ?? '')[0].map((_, c) => groupAlign(rows.map(r => r[c])));
+  }
+  return { fields, cols };
+}
 
 /* ===== 글자 서식 표기 =====
    **굵게**  __밑줄__  ==형광펜==  {{red:색 글자}}  \* 처럼 \ 뒤 글자는 그대로
@@ -469,6 +487,6 @@ function sanitize(d) {
 globalThis.DeckSpec = {
   APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
   TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc,
-  OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign,
+  OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
   parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
 };

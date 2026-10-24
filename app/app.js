@@ -1,7 +1,15 @@
 'use strict';
 
 /* ===== 상수 ===== */
-const STORE_KEY = 'any-slide-deck-v1';
+// 발표 폴더(pack-deck.mjs로 만든 폴더)에서는 deck-data.js가 window.ANY_SLIDE_PACK = { key, deck }을 준다.
+// 이때는 그 폴더 전용 저장 공간(key)을 쓰고, 처음 열면 함께 들어 있는 덱을 연다. 로컬 파일들은 저장 공간을 함께 쓰므로 폴더마다 이름을 다르게 한다.
+const PACK = typeof window !== 'undefined' && window.ANY_SLIDE_PACK && typeof window.ANY_SLIDE_PACK === 'object' ? window.ANY_SLIDE_PACK : null;
+const STORE_KEY = PACK && typeof PACK.key === 'string' ? PACK.key : 'any-slide-deck-v1';
+// 처음 상태: 발표 폴더면 그 덱, 아니면 기본 덱 (초기화도 이 상태로 돌아간다)
+function initialDeck() {
+  if (PACK) { try { return sanitize(PACK.deck); } catch (e) { /* 덱이 깨졌으면 기본 덱 */ } }
+  return defaultDeck();
+}
 // W, H, BG, STICKERS, PALETTE, TYPES, defaultDeck, sanitize, 서식 표기 함수는 deck-spec.js 에 있다
 
 /* ===== 상태 ===== */
@@ -40,7 +48,7 @@ function loadDeck() {
       loadWarning = '⚠ 브라우저 저장 공간을 읽지 못해 새 덱으로 열었어요.';
     }
   }
-  return defaultDeck();
+  return initialDeck();
 }
 
 // 저장: 실패하면 화면에 알린다. 페이지를 닫기 전에는 즉시 저장한다.
@@ -238,6 +246,7 @@ function objBoxStyle(o) {
 function slideRenderer(slide, { editable, animate }) {
   const fx = fxClasses(animate);
   const styles = slide.styles || {};
+  const aligns = slideAligns(slide);   // 나란한 상자·표 열의 자동 정렬 (묶음마다 하나로)
   let n = 0;
   const nextD = () => 0.1 + (n++) * 0.15;
   const ceAttr = plain => (editable ? (plain ? ' contenteditable="plaintext-only"' : ' contenteditable="true"') + ' spellcheck="false"' : '');
@@ -250,7 +259,7 @@ function slideRenderer(slide, { editable, animate }) {
   const text = (t, pos = '', fit = null) => {
     const plain = !!t.plain || PLAIN_FIELDS.has(t.field);
     const v = slide[t.field] ?? '';
-    const align0 = t.align || (t.auto ? autoAlign(v) : '');
+    const align0 = t.align || (t.auto ? (aligns.fields[t.field] || autoAlign(v)) : '');
     const attrs = (fit ? ` data-h="${fit.h}"` + (fit.grow ? ` data-grow="${fit.grow}"` : '') : '') + (plain ? ' data-plain="1"' : '')
       + (align0 ? ` data-align0="${align0}"` : '') + (t.auto ? ' data-auto="1"' : '');
     return `<div class="t ${t.cls}${pos ? ' abs' : ''} ${fx.text}" data-field="${t.field}" data-ph="${esc(t.ph || '')}"${attrs}${ceAttr(plain)}`
@@ -291,7 +300,7 @@ function slideRenderer(slide, { editable, animate }) {
         const cols = rows[0].length;
         const cells = rows.flatMap((r, ri) => r.map((v, ci) => {
           const cls = ['t', 'cell', ri === 0 ? 'th' : '', ci === cols - 1 ? 'last-col' : '', ri === rows.length - 1 ? 'last-row' : ''].join(' ');
-          const a0 = ri === 0 ? 'center' : autoAlign(v);
+          const a0 = ri === 0 ? 'center' : (aligns.cols[ci] || autoAlign(v));
           return `<div class="${cls}" data-cell="${ri},${ci}" data-ph="" data-align0="${a0}"${ri ? ' data-auto="1"' : ''}${ceAttr(false)} style="${boxStyle('table', a0)}">${markupToHTML(v)}</div>`;
         })).join('');
         return `<div class="table ${fx.text ? 'fx-fade' : ''}" data-field="table" data-h="${o.h}"${o.grow ? ` data-grow="${o.grow}"` : ''}`
@@ -485,16 +494,20 @@ function commitText(el) {
   else if (el.dataset.plain) slide[el.dataset.field] = domItems(el).map(i => i.text).join('');   // 서식 칸과 같은 줄바꿈 규칙
   else slide[el.dataset.field] = elToMarkup(el);
   if (!el.textContent && el.innerHTML) el.innerHTML = '';   // 비우면 안내 문구가 다시 보이게
-  // 표·상자 내용은 길이에 따라 정렬을 다시 정한다 (사용자가 정렬을 정했으면 그대로)
-  if (el.dataset.auto) {
-    const a0 = autoAlign(el.dataset.cell ? elToMarkup(el) : slide[el.dataset.field]);
-    el.dataset.align0 = a0;
-    const st = (slide.styles || {})[boxField(el)];
-    if (!st || !st.align) el.style.textAlign = a0;
-  }
+  // 표·상자 내용은 길이에 따라 정렬을 다시 정한다. 한 상자가 길어지면 같은 묶음의 상자도 함께 바뀐다 (직접 정한 정렬은 그대로)
+  if (el.dataset.auto) refreshAutoAligns();
   const boxEl = el.closest('[data-h]');
   if (boxEl) fitBox(boxEl);   // 입력 중인 칸만 다시 맞춘다 (커서는 그대로)
   save(); refreshThumb();
+}
+function refreshAutoAligns() {
+  const slide = deck.slides[cur], al = slideAligns(slide), styles = slide.styles || {};
+  curEl.querySelectorAll('[data-auto]').forEach(el => {
+    const a0 = el.dataset.cell ? al.cols[+el.dataset.cell.split(',')[1]] : (al.fields[el.dataset.field] || autoAlign(slide[el.dataset.field]));
+    el.dataset.align0 = a0;
+    const st = styles[boxField(el)];
+    if (!st || !st.align) el.style.textAlign = a0;
+  });
 }
 host.addEventListener('input', e => {
   const el = e.target;
@@ -1313,8 +1326,8 @@ function buildToolbar() {
     }
   });
   $('btnReset').addEventListener('click', () => {
-    if (!confirm('모든 편집 내용을 지우고 처음 상태로 되돌릴까요?')) return;
-    deck = defaultDeck(); cur = 0; save(); go(0, true);
+    if (!confirm(PACK ? '모든 편집 내용을 지우고 이 폴더의 원래 덱으로 되돌릴까요?' : '모든 편집 내용을 지우고 처음 상태로 되돌릴까요?')) return;
+    deck = initialDeck(); cur = 0; save(); go(0, true);
   });
 }
 
