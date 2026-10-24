@@ -5,11 +5,20 @@
 // 이때는 그 폴더 전용 저장 공간(key)을 쓰고, 처음 열면 함께 들어 있는 덱을 연다. 로컬 파일들은 저장 공간을 함께 쓰므로 폴더마다 이름을 다르게 한다.
 const PACK = typeof window !== 'undefined' && window.ANY_SLIDE_PACK && typeof window.ANY_SLIDE_PACK === 'object' ? window.ANY_SLIDE_PACK : null;
 const STORE_KEY = PACK && typeof PACK.key === 'string' ? PACK.key : 'any-slide-deck-v1';
+const SAVED_AT_KEY = STORE_KEY + ':savedAt';   // 브라우저에 마지막으로 저장한 시각 (폴더의 덱과 어느 쪽이 최신인지 비교)
+let packBroken = false;   // 발표 폴더의 덱을 읽지 못함: 예제 덱으로 폴더 저장 공간을 덮어쓰지 않는다
 // 처음 상태: 발표 폴더면 그 덱, 아니면 기본 덱 (초기화도 이 상태로 돌아간다)
 function initialDeck() {
-  if (PACK) { try { return sanitize(PACK.deck); } catch (e) { /* 덱이 깨졌으면 기본 덱 */ } }
+  if (PACK) {
+    try { return sanitize(PACK.deck); }
+    catch (e) {
+      packBroken = true;
+      loadWarning = '⚠ 이 폴더의 덱을 읽지 못해 예제 덱을 열었어요. 폴더 안의 덱 JSON 파일을 [불러오기]로 여세요.';
+    }
+  }
   return defaultDeck();
 }
+function packName() { return PACK ? `${PACK.title}_v${PACK.version}` : ''; }
 // W, H, BG, STICKERS, PALETTE, TYPES, defaultDeck, sanitize, 서식 표기 함수는 deck-spec.js 에 있다
 
 /* ===== 상태 ===== */
@@ -33,6 +42,25 @@ function loadDeck() {
   let raw = null;
   try {
     raw = localStorage.getItem(STORE_KEY);
+    // 발표 폴더: 폴더의 덱이 브라우저에 저장된 것보다 나중에 고친 것이면(다른 컴퓨터에서 [폴더에 저장] 후 복사) 폴더 덱을 연다.
+    // 브라우저 쪽 시각을 모르면(예전 저장) 고친 내용을 잃지 않도록 브라우저 쪽을 연다.
+    if (raw && PACK && PACK.savedAt) {
+      const local = localStorage.getItem(SAVED_AT_KEY);
+      if (local && PACK.savedAt > local) {
+        const d = initialDeck();
+        if (!packBroken) {
+          // 이 컴퓨터에서 고쳤던 덱은 백업하고, 브라우저 저장을 폴더 덱으로 맞춘다 (다음에 열 때 다시 묻지 않게)
+          try {
+            localStorage.setItem(STORE_KEY + '-backup-' + local.replace(/[^0-9]/g, '').slice(0, 14), raw);
+            localStorage.setItem(STORE_KEY, JSON.stringify(d));
+            localStorage.setItem(SAVED_AT_KEY, PACK.savedAt);
+          } catch (e2) { /* 보관 실패는 무시 */ }
+          loadWarning = 'ℹ 다른 컴퓨터에서 [폴더에 저장]한 최신 덱을 열었어요. 이 컴퓨터에서 고쳤던 내용은 브라우저에 백업해 두었어요.';
+          return d;
+        }
+        packBroken = false; loadWarning = '';   // 폴더 덱이 깨졌으면 브라우저에 저장된 덱을 그대로 연다
+      }
+    }
     if (raw) return sanitize(JSON.parse(raw));
   } catch (e) {
     if (raw) {
@@ -60,9 +88,10 @@ function save() {
 }
 function flushSave() {
   clearTimeout(saveTimer);
-  if (!dirty) return;
+  if (!dirty || packBroken) return;   // 폴더 덱을 못 읽어 연 예제 덱은 폴더 저장 공간에 저장하지 않는다
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(deck));
+    localStorage.setItem(SAVED_AT_KEY, new Date().toISOString());
     dirty = false;
     if (saveFailed) { saveFailed = false; setStatus(''); updateHud(); }   // 불러오기 경고는 저장 성공으로 지우지 않음
   } catch (e) {
@@ -73,8 +102,48 @@ function flushSave() {
 }
 function setStatus(msg) {
   const el = $('hint');
-  el.classList.toggle('warn', !!msg);
-  el.textContent = msg || HINT;
+  el.classList.toggle('warn', !!msg && msg.startsWith('⚠'));
+  el.classList.toggle('info', !!msg && !msg.startsWith('⚠'));
+  el.textContent = msg || (PACK ? PACK_HINT : HINT);
+}
+const PACK_HINT = '이 폴더의 덱이에요. 고친 내용은 이 컴퓨터 브라우저에 저장돼요 · 다른 컴퓨터로 폴더를 옮기기 전에 [폴더에 저장]을 누르세요';
+
+/* ===== 폴더에 저장 (발표 폴더 전용) =====
+   고친 덱을 발표 폴더 안의 deck-data.js와 덱 JSON에 직접 쓴다. 폴더를 다른 컴퓨터로 복사해도 고친 내용이 그대로 열린다.
+   크롬·엣지의 파일 접근 기능을 쓰고, 처음 한 번 폴더를 고르면 이 창을 닫을 때까지 다시 묻지 않는다. */
+let folderHandle = null;
+async function saveToFolder() {
+  if (!PACK) return;
+  if (!window.showDirectoryPicker) {
+    alert('이 브라우저는 폴더에 직접 저장할 수 없어요 (크롬·엣지에서 돼요).\n[저장]으로 덱 파일을 내려받아 옮긴 뒤, 발표할 컴퓨터에서 [불러오기]로 여세요.');
+    return;
+  }
+  try {
+    if (!folderHandle) {
+      const dir = await window.showDirectoryPicker({ id: 'any-slide-pack', mode: 'readwrite' });
+      // 고른 폴더가 이 발표 폴더인지 확인 (deck-data.js가 있어야 한다)
+      try { await dir.getFileHandle('deck-data.js'); }
+      catch (e) { alert('발표 폴더가 아니에요. Any-Slide.html과 deck-data.js가 들어 있는 폴더를 고르세요.'); return; }
+      folderHandle = dir;
+    }
+    flushSave();
+    const savedAt = new Date().toISOString();
+    const pack = { key: PACK.key, title: PACK.title, version: PACK.version, savedAt, deck };
+    const write = async (name, text) => {
+      const w = await (await folderHandle.getFileHandle(name, { create: true })).createWritable();
+      await w.write(text); await w.close();
+    };
+    await write('deck-data.js', `// ${packName()} 덱. Any-Slide.html이 이 덱을 바로 연다.\nwindow.ANY_SLIDE_PACK = ${JSON.stringify(pack)};\n`);
+    await write(`${packName()}.json`, JSON.stringify(deck, null, 2));
+    // 방금 쓴 폴더 덱과 브라우저 저장의 시각을 맞춘다 (다음에 열 때 같은 내용으로 본다)
+    try { localStorage.setItem(SAVED_AT_KEY, savedAt); } catch (e) { /* 무시 */ }
+    PACK.savedAt = savedAt;
+    setStatus('ℹ 폴더에 저장했어요. 이제 이 폴더를 다른 컴퓨터로 복사해도 고친 내용이 그대로 열려요.');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;   // 폴더 고르기를 취소함
+    folderHandle = null;
+    alert('폴더에 저장하지 못했어요: ' + (e && e.message ? e.message : e) + '\n[저장]으로 덱 파일을 내려받아 두세요.');
+  }
 }
 // 발표 중에는 안내줄이 숨으므로 저장 실패를 쪽 번호 옆에 함께 보여 준다
 function updateHud() {
@@ -1310,6 +1379,7 @@ function buildToolbar() {
     download('any-slide-deck.json', JSON.stringify(deck, null, 2));
   });
   $('btnImport').addEventListener('click', () => $('fileImport').click());
+  if (PACK) { $('btnSaveFolder').hidden = false; $('btnSaveFolder').addEventListener('click', saveToFolder); }
   $('fileImport').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
@@ -1319,6 +1389,7 @@ function buildToolbar() {
       const next = sanitize(JSON.parse(await f.text()));
       deck = next;
       next.slides.forEach(s => slideHTML(s, { editable: false, animate: false }));
+      packBroken = false; setStatus('');
       cur = 0; save(); go(0, true);
     } catch (err) {
       deck = prev; cur = prevCur;

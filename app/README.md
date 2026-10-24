@@ -8,6 +8,8 @@ open app/Any-Slide.html
 
 발표할 때는 덱마다 만든 **발표 폴더**(예: `~/Desktop/API_이용_앱_만들기_v1/`)의 `Any-Slide.html`을 연다. 폴더에 덱이 함께 들어 있어서 바로 그 덱이 열리고, 폴더째(또는 `Any-Slide.zip`으로) 다른 컴퓨터·윈도우로 옮겨도 그대로 쓸 수 있다.
 
+발표 폴더에서 고친 내용은 그 컴퓨터의 브라우저에 저장된다. 고친 덱을 다른 컴퓨터로 옮기려면 먼저 **[폴더에 저장]**(크롬·엣지)으로 폴더 안의 덱에 쓰고 폴더를 복사한다. 앱은 폴더의 덱과 브라우저에 저장된 덱 중 **더 최근에 고친 쪽**을 열고, 바뀐 쪽은 브라우저에 백업해 둔다. 사파리·파이어폭스에서는 [저장]으로 내려받아 옮긴 뒤 [불러오기]로 연다. 폴더의 덱을 읽지 못하면 경고와 함께 예제 덱을 열고, [불러오기]로 덱을 열 때까지 저장하지 않는다.
+
 ## 사용법
 
 - **편집**: 슬라이드의 글자를 클릭해서 바로 수정한다. 변경은 브라우저에 자동 저장된다. 글이 적으면 칸에 맞게 커지고, 많으면 작아진다.
@@ -26,6 +28,7 @@ open app/Any-Slide.html
 - **설정**: [설정]에서 배경, 글꼴, 장 전환(없음·페이드·밀기·확대·위로 올라오기)과 속도, 이 장만 다른 전환, 글자 등장(날아오기·페이드만·없음), 그림 등장, 둥실둥실을 정한다.
 - **발표**: [▶ 발표] 또는 `F`. 전체 화면으로 열린다. `←` `→` `Space` 또는 화면 클릭으로 넘기고 `Esc`로 끝낸다.
 - **저장/불러오기**: [저장]으로 덱을 JSON 파일로 내려받고 [불러오기]로 다시 연다. 잘못된 파일이면 현재 덱을 그대로 둔다.
+- **폴더에 저장**(발표 폴더에서만 보임): 고친 덱을 폴더 안의 `deck-data.js`와 덱 JSON에 직접 쓴다. 처음 한 번 그 발표 폴더를 고르면 창을 닫을 때까지 다시 묻지 않는다.
 - **정보**: 메뉴 줄 맨 오른쪽 [Any-Slide]를 누르면 버전과 제작 정보가 보인다.
 - **글꼴**: 기본은 페이퍼로지(Paperlogy)이고 `fonts/`에 들어 있어서 인터넷 없이도 보인다. 다른 글꼴을 쓰려면 설정의 글꼴 칸에 컴퓨터에 설치된 글꼴 이름을 적는다. 페이퍼로지는 SIL Open Font License 1.1이며 라이선스는 `fonts/OFL-Paperlogy.txt`에 있다.
 
@@ -54,7 +57,7 @@ open app/Any-Slide.html
 
 - 검사: `node .claude/skills/slide-deck/scripts/check-deck.mjs decks/<파일>.json`
 - 미리 보기(PNG): `node .claude/skills/slide-deck/scripts/preview-deck.mjs decks/<파일>.json <출력폴더>`
-- 발표 폴더 만들기: `node .claude/skills/slide-deck/scripts/pack-deck.mjs decks/<파일>.json --title "<제목>" [--dest ~/Desktop] [--zip]`
+- 발표 폴더 만들기: `node .claude/skills/slide-deck/scripts/pack-deck.mjs decks/<파일>.json --title "<제목>" [--dest ~/Desktop] [--version N] [--zip]`
 - 텔레그램 다다비서봇으로 보내기(허락받은 뒤): `node .claude/skills/slide-deck/scripts/send-telegram.mjs <파일>`
 
 덱 규칙(슬라이드 형태, 허용 스티커, 검증)의 원본은 `app/deck-spec.js`다.
