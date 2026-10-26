@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
@@ -487,10 +487,36 @@ function sanitize(d) {
   };
 }
 
+// PDF 쪽 고르기: "1-5, 8"을 0부터 센 장 번호 목록(겹침 없이 차례대로)으로 바꾼다. 잘못 쓰면 이유를 담아 예외를 던진다.
+function parsePages(text, n) {
+  const parts = String(text).replace(/\s*[-~]\s*/g, '-').split(/[,\s]+/).filter(Boolean);
+  if (!parts.length) throw new Error('쪽 번호를 적어 주세요 (예: 1-5, 8)');
+  const out = new Set();
+  for (const part of parts) {
+    const m = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!m) throw new Error(`알 수 없는 쪽 번호: ${part}`);
+    const a = +m[1], b = m[2] ? +m[2] : a;
+    if (Math.min(a, b) < 1 || Math.max(a, b) > n) throw new Error(`1부터 ${n}까지만 고를 수 있어요: ${part}`);
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) out.add(i - 1);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+// 장 번호 목록을 쪽 고르기 글자로: [0, 1, 2, 4] → "1-3, 5"
+function pagesToText(list) {
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+    out.push(j > i ? `${list[i] + 1}-${list[j] + 1}` : `${list[i] + 1}`);
+    i = j;
+  }
+  return out.join(', ');
+}
+
 // Node에서 읽을 수 있게 내보낸다 (브라우저에서는 위 선언이 그대로 전역으로 쓰인다)
 globalThis.DeckSpec = {
   APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
   TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc,
   OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
-  parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
+  parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString, parsePages, pagesToText,
 };

@@ -27,7 +27,7 @@
     <div class="group">
       <button id="btnExport" title="덱을 JSON 파일로 저장">저장</button>
       <button id="btnImport" title="JSON 파일 불러오기">불러오기</button>
-      <button id="btnPdf" title="모든 장을 PDF로 저장 (인쇄 창에서 대상을 'PDF로 저장'으로 고르세요)">PDF</button>
+      <button id="btnPdf" title="전체 또는 고른 장을 PDF로 저장">PDF</button>
       <button id="btnSaveFolder" title="고친 덱을 이 발표 폴더 안의 파일에 저장 (다른 컴퓨터로 옮기기 전에)" hidden>폴더에 저장</button>
       <button id="btnReset" class="danger" title="처음 상태로">초기화</button>
     </div>
@@ -66,6 +66,17 @@
   <label class="set-row">글자 등장 <select id="selTextAnim"></select></label>
   <label class="set-row">그림 등장 <span class="check"><input id="chkImgAnim" type="checkbox"> 켜기</span></label>
   <label class="set-row">둥실둥실 <span class="check"><input id="chkFloat" type="checkbox"> 켜기</span></label>
+</div>
+
+<div id="pdfPanel" class="float-panel" hidden>
+  <div class="panel-title">PDF로 저장 <button id="btnPdfClose" aria-label="닫기">✕</button></div>
+  <label class="check pdf-opt"><input type="radio" name="pdfRange" value="all" checked> 전체 <span id="pdfAllCount"></span></label>
+  <label class="check pdf-opt"><input type="radio" name="pdfRange" value="some"> 일부</label>
+  <input id="inPdfPages" type="text" placeholder="예: 1-5, 8" title="쪽 번호를 쉼표로 나눠 적거나, 아래 번호를 눌러 고르세요">
+  <div id="pdfChips" aria-label="쪽 고르기"></div>
+  <p id="pdfMsg" class="pdf-msg" aria-live="polite"></p>
+  <button id="btnPdfMake" type="button" class="primary">만들기</button>
+  <p class="empty-note">인쇄 창이 뜨면 대상을 「PDF로 저장」으로 고르고 [저장]을 누르세요. 한 번 고르면 다음부터는 기억해요.</p>
 </div>
 
 <div id="aboutPop" class="float-panel" hidden role="dialog" aria-label="앱 정보">
