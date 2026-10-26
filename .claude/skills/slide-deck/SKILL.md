@@ -72,8 +72,8 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
    ```
    node .claude/skills/slide-deck/scripts/pack-deck.mjs decks/<덱 파일> --title "<슬라이드 제목>" --dest <저장 경로>
    ```
-   - 폴더 이름은 `<제목>_v<버전>`이다. 버전은 **같은 제목으로 덱을 만든 횟수**이고 `decks/생성기록.json`에 자동으로 기록된다(같은 경로에 폴더가 있는지와 상관없다).
-   - 폴더 안: `Any-Slide.html`(여는 파일), 앱 파일, 그림, 글꼴, 덱 JSON(`<제목>_v<버전>.json`), 덱을 바로 여는 `deck-data.js`.
+   - 폴더 이름은 `<날짜>_<제목>_v<버전>`이다. 날짜는 발표일로, 덱 파일 이름 앞의 `YYYY-MM-DD`를 쓴다(`--date YYYY-MM-DD`로 바꿀 수 있고, 둘 다 없으면 날짜 없이 만든다). 버전은 **같은 제목으로 덱을 만든 횟수**이고 `decks/생성기록.json`에 자동으로 기록된다(같은 경로에 폴더가 있는지와 상관없다).
+   - 폴더 안: `Any-Slide.html`(여는 파일), 앱 파일, 그림, 글꼴, 덱 JSON(`<폴더 이름>.json`), 덱을 바로 여는 `deck-data.js`.
    - 발표 폴더는 저장 공간을 따로 써서 다른 발표 폴더의 편집 내용과 섞이지 않는다.
    - 제목 앞의 점은 뺀다(숨김 폴더가 되지 않게). 버전을 직접 정해야 하면 `--version N`.
    - 생성 기록이 깨져 있으면 덮어쓰지 않고 멈춘다. 사용자에게 알리고, 기록을 고치거나 `--version N`으로 기록 없이 만든다.
@@ -89,8 +89,8 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
 - 발표 폴더 경로, 장 수와 구성(한 줄씩), 사용자가 채워야 할 자리, 여는 방법(폴더의 `Any-Slide.html`)을 짧게 알린다.
 - 나눠 줄 자료가 필요하면 앱의 **[인쇄]** 버튼으로 PDF를 만들 수 있다고 알린다(인쇄 창에서 대상을 「PDF로 저장」, 일부 장은 「페이지」에서 고름).
 - **윈도우에서도 발표할지 묻는다.** 사용자가 허락할 때만 아래를 한다. 묻지 않고 보내지 않는다.
-  1. zip 만들기: `node .claude/skills/slide-deck/scripts/pack-deck.mjs --zip-folder <발표 폴더>` → 폴더 안에 `Any-Slide.zip`(압축을 풀면 `<제목>_v<버전>` 폴더, 한글 이름은 UTF-8)
-  2. 텔레그램 다다비서봇(@sec_dada_bot)으로 보내기: `node .claude/skills/slide-deck/scripts/send-telegram.mjs <발표 폴더>/Any-Slide.zip --caption "<제목> v<버전>"`
+  1. zip 만들기: `node .claude/skills/slide-deck/scripts/pack-deck.mjs --zip-folder <발표 폴더>` → 폴더 안에 `<폴더 이름>.zip`(압축을 풀면 같은 이름의 폴더). 한글 이름은 UTF-8 표시와 NFC(완성형)로 넣어 윈도우에서 자소가 풀리지 않는다
+  2. 텔레그램 다다비서봇(@sec_dada_bot)으로 보내기: `node .claude/skills/slide-deck/scripts/send-telegram.mjs <발표 폴더>/<폴더 이름>.zip --caption "<제목> v<버전>"`. 받는 파일 이름도 NFC로 보낸다
      - 봇 설정은 `~/projects/hwp-telegram-assistant/.env`(BOT_TOKEN, ALLOWED_CHAT_ID)를 읽는다. 토큰은 출력하거나 기록하지 않는다.
      - 봇으로는 50MB까지 보낼 수 있다. 처음이거나 의심스러우면 `--whoami`로 봇 이름만 먼저 확인한다.
   3. 윈도우에서는 zip을 풀고 `Any-Slide.html`을 Edge나 Chrome으로 연다.

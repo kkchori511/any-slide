@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;

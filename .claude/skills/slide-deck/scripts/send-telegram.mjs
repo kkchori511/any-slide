@@ -37,10 +37,12 @@ try {
   const form = new FormData();
   form.append('chat_id', chat);
   if (ci >= 0 && args[ci + 1]) form.append('caption', args[ci + 1]);
-  form.append('document', new Blob([fs.readFileSync(file)]), path.basename(file));
+  // 받는 쪽 파일 이름은 NFC로 (맥의 NFD 이름은 윈도우에서 자소가 풀려 보인다)
+  const fileName = path.basename(file).normalize('NFC');
+  form.append('document', new Blob([fs.readFileSync(file)]), fileName);
   const r = await (await fetch(api('sendDocument'), { method: 'POST', body: form })).json();
   if (!r.ok) fail(`보내기 실패: ${hide(r.description)}`);
-  console.log(`✔ 보냄: ${path.basename(file)} (${(size / 1048576).toFixed(1)}MB)`);
+  console.log(`✔ 보냄: ${fileName} (${(size / 1048576).toFixed(1)}MB)`);
 } catch (e) {
   fail(`텔레그램 연결 실패: ${hide(e.message)}`);
 }

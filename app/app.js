@@ -18,7 +18,8 @@ function initialDeck() {
   }
   return defaultDeck();
 }
-function packName() { return PACK ? `${PACK.title}_v${PACK.version}` : ''; }
+// 발표 폴더 이름 (<날짜>_<제목>_v<버전>). name이 없는 예전 폴더는 <제목>_v<버전>
+function packName() { return PACK ? (typeof PACK.name === 'string' && PACK.name ? PACK.name : `${PACK.title}_v${PACK.version}`) : ''; }
 // W, H, BG, STICKERS, PALETTE, TYPES, defaultDeck, sanitize, 서식 표기 함수는 deck-spec.js 에 있다
 
 /* ===== 상태 ===== */
@@ -128,7 +129,7 @@ async function saveToFolder() {
     }
     flushSave();
     const savedAt = new Date().toISOString();
-    const pack = { key: PACK.key, title: PACK.title, version: PACK.version, savedAt, deck };
+    const pack = { key: PACK.key, name: PACK.name, title: PACK.title, version: PACK.version, savedAt, deck };
     const write = async (name, text) => {
       const w = await (await folderHandle.getFileHandle(name, { create: true })).createWritable();
       await w.write(text); await w.close();
