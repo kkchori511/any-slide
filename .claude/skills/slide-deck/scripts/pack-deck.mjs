@@ -28,6 +28,8 @@ const recordFile = path.join(root, 'decks', '생성기록.json');
 const args = process.argv.slice(2);
 const opt = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const fail = msg => { console.error(`✘ ${msg}`); process.exit(1); };
+const loadSpec = () => { const c = vm.createContext({}); vm.runInContext(fs.readFileSync(path.join(appDir, 'deck-spec.js'), 'utf8'), c); return c.DeckSpec; };
+const notNfc = s => s !== s.normalize('NFC');
 
 // 폴더를 <폴더 이름>.zip으로 묶는다. 이름이 한글이어도 윈도우에서 깨지지 않도록 파이썬 zipfile(UTF-8 표시)을 쓰고,
 // 파일 이름은 모두 NFC로 바꿔 넣는다. 폴더 맨 위의 zip(예전 Any-Slide.zip 포함)은 넣지 않는다.
@@ -56,14 +58,21 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
 if (args[0] === '--zip-folder') {
   const folder = path.resolve(args[1] || '').replace(/\/+$/, '');
   if (!fs.existsSync(path.join(folder, 'Any-Slide.html'))) fail(`발표 폴더가 아님: ${folder}`);
+  // zip 안의 이름은 NFC가 되므로, 덱의 그림 경로가 NFC가 아니면 윈도우에서 그림을 못 찾는다. 이때는 묶지 않는다.
+  let pack = null;
+  try { pack = JSON.parse(/window\.ANY_SLIDE_PACK = (.*);\s*$/s.exec(fs.readFileSync(path.join(folder, 'deck-data.js'), 'utf8'))[1]); }
+  catch (e) { fail(`deck-data.js를 읽지 못함: ${folder}`); }
+  const odd = mediaRefs(pack.deck || { slides: [] }, loadSpec().isMediaSrc).filter(notNfc);
+  if (odd.length) fail(`덱의 그림 경로가 완성형(NFC)이 아니라 윈도우에서 그림이 빠질 수 있어요: ${odd.join(', ')}\n  덱을 다시 pack-deck으로 만들면 그림 이름과 경로를 함께 맞춰요.`);
   const z = zipFolder(folder);
   console.log(`✔ zip: ${z} (${(fs.statSync(z).size / 1048576).toFixed(1)}MB)`);
   process.exit(0);
 }
 
 const deckFile = args[0];
-const title = opt('--title') && opt('--title').normalize('NFC');
+const title = opt('--title');
 const dateOpt = opt('--date');
+if (args.includes('--date') && (dateOpt === undefined || dateOpt.startsWith('--'))) fail('--date 뒤에 YYYY-MM-DD 날짜를 주세요');
 const dest = path.resolve((opt('--dest') || path.join(os.homedir(), 'Desktop')).replace(/^~(?=$|\/)/, os.homedir()));
 if (!deckFile || deckFile.startsWith('--')) fail('사용법: node pack-deck.mjs <덱.json> --title "슬라이드 제목" [--dest 저장할곳] [--date YYYY-MM-DD] [--version N] [--zip]');
 if (!title) fail('--title "슬라이드 제목"을 주세요 (폴더 이름과 버전 기록에 씁니다)');
@@ -76,8 +85,7 @@ const date = dateOpt || (fileDate && isDate(fileDate) ? fileDate : '');
 if (!date) console.log('⚠ 발표 날짜를 알 수 없어 폴더 이름에 날짜를 넣지 않았어요 (--date YYYY-MM-DD로 줄 수 있어요)');
 
 // 앱과 같은 검증을 거친다
-const ctx = vm.createContext({});
-vm.runInContext(fs.readFileSync(path.join(appDir, 'deck-spec.js'), 'utf8'), ctx);
+const ctx = { DeckSpec: loadSpec() };
 let deck;
 try { deck = ctx.DeckSpec.sanitize(JSON.parse(fs.readFileSync(deckFile, 'utf8'))); }
 catch (e) { fail(`앱이 열 수 없는 덱: ${e.message}`); }
@@ -86,9 +94,23 @@ catch (e) { fail(`앱이 열 수 없는 덱: ${e.message}`); }
 const mediaDir = path.resolve(opt('--media') || mediaDirOf(deckFile));
 const lost = missingMedia(deck, mediaDir, ctx.DeckSpec.isMediaSrc);
 if (lost.length) fail(`덱 그림이 없거나 읽을 수 없음 (${mediaDir}): ${lost.join(', ')}`);
+// 그림 이름과 덱의 그림 경로(그림 칸·스티커)를 함께 NFC로 맞춘다 (zip 안 이름과 경로가 어긋나지 않게).
+// 바꾼 이름이 다른 그림과 겹치면 멈춘다.
+const mediaCopy = new Map();   // NFC 이름 → 그림 폴더의 원래 이름
+for (const n of mediaRefs(deck, ctx.DeckSpec.isMediaSrc)) {
+  const m = n.normalize('NFC');
+  if (mediaCopy.has(m) && mediaCopy.get(m) !== n) fail(`완성형(NFC)으로 바꾸면 이름이 같아지는 그림이 있어요: ${m} (한쪽 이름을 바꾸세요)`);
+  mediaCopy.set(m, n);
+}
+const nfcMedia = src => ctx.DeckSpec.isMediaSrc(src) ? src.normalize('NFC') : src;
+for (const s of deck.slides) {
+  if (s.img !== undefined) s.img = nfcMedia(s.img);
+  for (const k of s.stickers || []) k.src = nfcMedia(k.src);
+}
 
 // 폴더 이름에 못 쓰는 글자를 빼고, 앞의 점(숨김 폴더가 됨)도 뺀다
-const safeTitle = title.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_').replace(/^[.\s_]+/, '');
+// 지운 글자 양옆이 이어져 새로 조합될 수 있으므로 정리한 뒤에 NFC로 맞춘다
+const safeTitle = title.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_').replace(/^[.\s_]+/, '').normalize('NFC');
 if (!safeTitle) fail('제목에 폴더 이름으로 쓸 수 있는 글자가 없음');
 // 생성 기록이 깨졌으면 덮어쓰지 않고 멈춘다 (지금까지의 버전 기록을 잃지 않게)
 let records = [];
@@ -115,10 +137,9 @@ try {
   // 앱 파일 복사
   for (const f of ['app.js', 'deck-spec.js', 'style.css']) fs.copyFileSync(path.join(appDir, f), path.join(work, f));
   for (const d of ['assets', 'fonts']) fs.cpSync(path.join(appDir, d), path.join(work, d), { recursive: true, filter: s => !path.basename(s).startsWith('.') });
-  const media = mediaRefs(deck, ctx.DeckSpec.isMediaSrc);
-  if (media.length) {
+  if (mediaCopy.size) {
     fs.mkdirSync(path.join(work, 'media'));
-    for (const n of media) fs.copyFileSync(path.join(mediaDir, n), path.join(work, 'media', n));
+    for (const [m, n] of mediaCopy) fs.copyFileSync(path.join(mediaDir, n), path.join(work, 'media', m));
   }
   // 덱 JSON과 덱을 바로 여는 파일. 저장 공간 이름은 폴더마다 달라서 다른 발표 폴더와 섞이지 않는다.
   fs.writeFileSync(path.join(work, `${name}.json`), JSON.stringify(deck, null, 2));

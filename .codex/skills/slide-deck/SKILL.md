@@ -94,7 +94,8 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
      - 봇 설정은 `~/projects/hwp-telegram-assistant/.env`(BOT_TOKEN, ALLOWED_CHAT_ID)를 읽는다. 토큰은 출력하거나 기록하지 않는다.
      - 봇으로는 50MB까지 보낼 수 있다. 처음이거나 의심스러우면 `--whoami`로 봇 이름만 먼저 확인한다.
   3. 윈도우에서는 zip을 풀고 `Any-Slide.html`을 Edge나 Chrome으로 연다.
-  - zip에서는 `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, `.git`만 뺀다.
+  - zip에서는 `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, `.git`과 폴더 맨 위의 zip(예전 `Any-Slide.zip` 포함)을 뺀다. 하위 폴더의 zip은 넣는다.
+  - 그림 이름과 덱의 그림 경로는 발표 폴더를 만들 때 함께 NFC로 맞춘다. `--zip-folder`는 덱의 그림 경로가 NFC가 아니면 묶지 않고 멈춘다(덱을 다시 만들면 맞춰진다).
 
 ## 레이아웃 원칙: 화면을 꽉 차고 보기 좋게
 
