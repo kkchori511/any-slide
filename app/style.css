@@ -256,14 +256,6 @@ input[type=range] { width: 120px; }
 #stickerGrid button { padding: 10px 6px 8px; background: #f3eee4; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
 #stickerGrid img { width: 100%; aspect-ratio: 1; object-fit: contain; }
 #stickerGrid span { font-size: 12px; color: #6e6657; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-#pdfPanel { width: 340px; }
-.pdf-opt { font-size: 14px; margin: 6px 0; }
-#inPdfPages { width: 100%; box-sizing: border-box; margin: 4px 0 10px; }
-#pdfChips { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; margin-bottom: 8px; }
-#pdfChips button { padding: 4px 0; font-size: 12px; min-width: 0; }
-#pdfChips button.on { background: #e4ecf8; border-color: var(--ui-accent); font-weight: 700; }
-.pdf-msg { min-height: 18px; margin: 4px 0 8px; font-size: 13px; color: #b0443a; }
-#btnPdfMake { width: 100%; }
 .set-row { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: center; margin: 10px 0; font-size: 13px; }
 .set-row select, .set-row input[type=text] { width: 100%; }
 .set-sep { border: 0; border-top: 1px solid var(--ui-line); margin: 14px 0; }
@@ -278,7 +270,7 @@ body.present.idle { cursor: none; }
 body.present #hud { display: block; }
 body.present:not(.idle) #hud { opacity: 1; }
 
-/* ===== PDF로 저장 =====
+/* ===== 인쇄 (PDF로 저장) =====
    화면에서는 #printHost를 화면 밖에 둔다(글자 맞춤을 재려면 보이는 상태여야 한다).
    인쇄할 때는 앱 화면을 모두 숨기고 1920x1080 쪽만 여백 없이, 배경까지 찍는다. */
 #printHost { position: absolute; left: -40000px; top: 0; }

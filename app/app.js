@@ -1169,7 +1169,6 @@ function openStickerPanel(forSlot) {
   $('stickerPanelTitle').textContent = slotPick ? '그림 칸에 넣을 그림' : '스티커';
   $('settingsPanel').hidden = true;
   $('aboutPop').hidden = true;
-  $('pdfPanel').hidden = true;
   $('stickerPanel').hidden = false;
   renderStickerGrid();
 }
@@ -1220,18 +1219,18 @@ function syncToolbar() {
   syncSettings();
 }
 
-/* ===== PDF로 저장 =====
-   [PDF] → 전체 또는 일부(1-5, 8)를 고르면 그 장들을 등장 효과 없이 1920x1080 쪽으로 펼쳐 놓고 인쇄 창을 연다.
-   브라우저는 인쇄 창 없이 PDF 파일을 만들 수 없어서, 인쇄 창에서 'PDF로 저장'을 고르게 한다.
+/* ===== 인쇄 (PDF로 저장) =====
+   [인쇄] → 모든 장을 등장 효과 없이 1920x1080 쪽으로 펼쳐 놓고 인쇄 창을 연다.
+   PDF는 인쇄 창에서 대상을 'PDF로 저장'으로 고르고, 일부 장만은 인쇄 창의 '페이지'에서 고른다.
    쪽 크기·여백·배경 인쇄는 style.css의 @media print가 정하므로 인쇄 창 설정을 바꾸지 않아도 된다.
    글자 자동 맞춤은 보이는 상태에서만 잴 수 있어서, 화면에서는 #printHost를 화면 밖에 두고 잰다. */
 // 늦게까지 불러오지 못한 것이 있으면 true를 돌려준다
-async function buildPrintPages(indices = deck.slides.map((_, i) => i)) {
+async function buildPrintPages() {
   const ph = $('printHost');
-  ph.replaceChildren(...indices.map(i => {
+  ph.replaceChildren(...deck.slides.map(s => {
     const page = document.createElement('div');
     page.className = 'print-page';
-    page.appendChild(makeSlide(deck.slides[i], { editable: false, animate: false }));
+    page.appendChild(makeSlide(s, { editable: false, animate: false }));
     return page;
   }));
   // 글꼴·그림·배경을 불러온 뒤에 맞추고 인쇄한다. 빠지거나 늦는 그림 때문에 멈추지 않게 3초까지만 기다린다.
@@ -1247,11 +1246,10 @@ async function buildPrintPages(indices = deck.slides.map((_, i) => i)) {
   return late;
 }
 
-/* 인쇄 작업은 한 번에 하나만. 준비하는 동안은 [PDF]·[만들기]를 잠근다.
+/* 인쇄 작업은 한 번에 하나만. 준비하는 동안은 [인쇄]를 잠근다.
    펼쳐 둔 쪽과 파일 이름은 인쇄가 끝났다는 신호(afterprint)를 받은 뒤에 지운다
-   (인쇄 창이 기다려 주지 않는 브라우저도 있어서). 신호가 오지 않으면 다음 PDF를 시작할 때 지운다. */
+   (인쇄 창이 기다려 주지 않는 브라우저도 있어서). 신호가 오지 않으면 다음 인쇄를 시작할 때 지운다. */
 let printJob = null;   // { title, printing, warned }
-function setPdfBusy(on) { $('btnPdf').disabled = $('btnPdfMake').disabled = on; }
 function endPrintJob() {
   if (!printJob) return;
   document.title = printJob.title;
@@ -1260,73 +1258,27 @@ function endPrintJob() {
   window.removeEventListener('afterprint', endPrintJob);
   $('printHost').replaceChildren();
 }
-async function printPdf(indices) {
+async function printDeck() {
   if (printJob && !printJob.printing) return;   // 준비 중에 또 누름
   endPrintJob();                                 // 지난 인쇄가 신호 없이 끝났으면 정리
   const job = printJob = { title: document.title, printing: false };
-  setPdfBusy(true);
+  $('btnPrint').disabled = true;
   try {
     releaseFocus();
     flushSave();
-    const late = await buildPrintPages(indices);
+    const late = await buildPrintPages();
     if (printJob !== job) return;
-    if (late) { job.warned = true; setStatus('⚠ 일부 그림·글꼴을 3초 안에 불러오지 못해, 불러온 만큼으로 PDF를 만들어요.'); }
-    // PDF 파일 이름의 기본값. 일부만 고르면 쪽 번호를 붙인다 (예: 발표_v2_4-9_22)
-    const all = indices.length === deck.slides.length;
-    document.title = (packName() || 'Any-Slide') + (all ? '' : '_' + pagesToText(indices).replace(/,\s*/g, '_'));
+    if (late) { job.warned = true; setStatus('⚠ 일부 그림·글꼴을 3초 안에 불러오지 못해, 불러온 만큼으로 인쇄해요.'); }
+    document.title = packName() || 'Any-Slide';   // PDF 파일 이름의 기본값
     job.printing = true;
     window.addEventListener('afterprint', endPrintJob);
     window.print();
   } catch (e) {
     endPrintJob();
-    setStatus(`⚠ PDF를 만들지 못했어요: ${e.message}`);
+    setStatus(`⚠ 인쇄하지 못했어요: ${e.message}`);
   } finally {
-    setPdfBusy(false);
+    $('btnPrint').disabled = false;
   }
-}
-
-// 쪽 고르기 창: 글자로 적거나 번호를 눌러 고른다. 둘은 서로 맞춰진다.
-let pdfPick = new Set();
-function pdfRange() { return document.querySelector('input[name="pdfRange"]:checked').value; }
-function setPdfRange(v) { document.querySelector(`input[name="pdfRange"][value="${v}"]`).checked = true; }
-function renderPdfChips() {
-  $('pdfChips').replaceChildren(...deck.slides.map((_, i) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = i + 1;
-    b.className = pdfPick.has(i) ? 'on' : '';
-    b.setAttribute('aria-pressed', pdfPick.has(i) ? 'true' : 'false');
-    b.addEventListener('click', () => {
-      pdfPick.has(i) ? pdfPick.delete(i) : pdfPick.add(i);
-      setPdfRange('some');
-      $('inPdfPages').value = pagesToText([...pdfPick].sort((a, c) => a - c));
-      $('pdfMsg').textContent = '';
-      renderPdfChips();
-    });
-    return b;
-  }));
-}
-function openPdfPanel() {
-  $('stickerPanel').hidden = $('settingsPanel').hidden = $('aboutPop').hidden = true;
-  const n = deck.slides.length;
-  $('pdfAllCount').textContent = `(${n}장)`;
-  // 장 수가 바뀌었으면 없는 번호는 뺀다. 처음 열면 일부 칸에 지금 장을 넣어 둔다.
-  pdfPick = new Set([...pdfPick].filter(i => i < n));
-  if (!pdfPick.size) pdfPick.add(cur);
-  $('inPdfPages').value = pagesToText([...pdfPick].sort((a, c) => a - c));
-  $('pdfMsg').textContent = '';
-  renderPdfChips();
-  $('pdfPanel').hidden = false;
-}
-function makePdf() {
-  let indices;
-  if (pdfRange() === 'all') indices = deck.slides.map((_, i) => i);
-  else {
-    try { indices = parsePages($('inPdfPages').value, deck.slides.length); }
-    catch (e) { $('pdfMsg').textContent = e.message; return; }
-  }
-  $('pdfPanel').hidden = true;
-  printPdf([...indices]);
 }
 
 /* ===== 발표 모드 ===== */
@@ -1379,8 +1331,8 @@ document.addEventListener('keydown', e => {
   const typing = editing || /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/.test(e.target.tagName);
   if (e.key === 'Escape') {
     if (typing) { e.target.blur(); return; }
-    if (!$('stickerPanel').hidden || !$('settingsPanel').hidden || !$('aboutPop').hidden || !$('pdfPanel').hidden) {
-      $('stickerPanel').hidden = $('settingsPanel').hidden = $('aboutPop').hidden = $('pdfPanel').hidden = true; return;
+    if (!$('stickerPanel').hidden || !$('settingsPanel').hidden || !$('aboutPop').hidden) {
+      $('stickerPanel').hidden = $('settingsPanel').hidden = $('aboutPop').hidden = true; return;
     }
     if (sel >= 0 || selO) { selectNone(); return; }
     if (mode === 'present') endPresent();
@@ -1467,7 +1419,7 @@ function buildToolbar() {
   $('btnSettings').addEventListener('click', () => {
     const p = $('settingsPanel');
     p.hidden = !p.hidden;
-    if (!p.hidden) { $('stickerPanel').hidden = $('pdfPanel').hidden = true; syncSettings(); }
+    if (!p.hidden) { $('stickerPanel').hidden = true; syncSettings(); }
   });
   $('btnSettingsClose').addEventListener('click', () => { $('settingsPanel').hidden = true; });
   const setAndShow = (fn, still) => { fn(); save(); syncSettings(); still ? redraw() : renderStage(); };
@@ -1489,16 +1441,7 @@ function buildToolbar() {
     download('any-slide-deck.json', JSON.stringify(deck, null, 2));
   });
   $('btnImport').addEventListener('click', () => $('fileImport').click());
-  $('btnPdf').addEventListener('click', () => { $('pdfPanel').hidden ? openPdfPanel() : ($('pdfPanel').hidden = true); });
-  $('btnPdfClose').addEventListener('click', () => { $('pdfPanel').hidden = true; });
-  $('btnPdfMake').addEventListener('click', makePdf);
-  $('inPdfPages').addEventListener('input', e => {
-    setPdfRange('some');
-    try { pdfPick = new Set(parsePages(e.target.value, deck.slides.length)); $('pdfMsg').textContent = ''; }
-    catch (err) { pdfPick = new Set(); }
-    renderPdfChips();
-  });
-  $('inPdfPages').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); makePdf(); } });
+  $('btnPrint').addEventListener('click', printDeck);
   if (PACK) { $('btnSaveFolder').hidden = false; $('btnSaveFolder').addEventListener('click', saveToFolder); }
   $('fileImport').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
@@ -1533,12 +1476,8 @@ if (brokenRaw && confirm('저장된 덱을 읽지 못했고 복구용 보관에�
   download('any-slide-broken-backup.json', brokenRaw);
 }
 // 해시로 시작 위치 지정: #s=3 (슬라이드 번호), #s=3&view (전체 화면 없이 발표 화면으로 열기)
-// #pdf, #pdf=4-9,22: 인쇄 창 없이 PDF용 쪽만 펼쳐 둔다 (헤드리스 Chrome --print-to-pdf로 확인할 때)
+// #print: 인쇄 창 없이 인쇄용 쪽만 펼쳐 둔다 (헤드리스 Chrome --print-to-pdf로 확인할 때)
 const hash = new URLSearchParams(location.hash.slice(1));
 go(Math.max(0, (parseInt(hash.get('s'), 10) || 1) - 1));
 if (hash.has('view')) setMode('present');
-if (hash.has('pdf')) {
-  let pages;
-  try { pages = hash.get('pdf') ? parsePages(hash.get('pdf'), deck.slides.length) : undefined; } catch (e) { pages = undefined; }
-  buildPrintPages(pages);
-}
+if (hash.has('print')) buildPrintPages();

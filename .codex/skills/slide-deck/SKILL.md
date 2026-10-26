@@ -87,7 +87,7 @@ description: 발표 내용을 받아 any-slide 슬라이드 앱에서 여는 덱
 ### 6. 보고와 윈도우 발표 준비
 
 - 발표 폴더 경로, 장 수와 구성(한 줄씩), 사용자가 채워야 할 자리, 여는 방법(폴더의 `Any-Slide.html`)을 짧게 알린다.
-- 나눠 줄 자료가 필요하면 앱의 **[PDF]** 버튼으로 PDF를 만들 수 있다고 알린다(인쇄 창에서 「PDF로 저장」).
+- 나눠 줄 자료가 필요하면 앱의 **[인쇄]** 버튼으로 PDF를 만들 수 있다고 알린다(인쇄 창에서 대상을 「PDF로 저장」, 일부 장은 「페이지」에서 고름).
 - **윈도우에서도 발표할지 묻는다.** 사용자가 허락할 때만 아래를 한다. 묻지 않고 보내지 않는다.
   1. zip 만들기: `node .claude/skills/slide-deck/scripts/pack-deck.mjs --zip-folder <발표 폴더>` → 폴더 안에 `Any-Slide.zip`(압축을 풀면 `<제목>_v<버전>` 폴더, 한글 이름은 UTF-8)
   2. 텔레그램 다다비서봇(@sec_dada_bot)으로 보내기: `node .claude/skills/slide-deck/scripts/send-telegram.mjs <발표 폴더>/Any-Slide.zip --caption "<제목> v<버전>"`
