@@ -1225,6 +1225,7 @@ function syncToolbar() {
    브라우저는 인쇄 창 없이 PDF 파일을 만들 수 없어서, 인쇄 창에서 'PDF로 저장'을 고르게 한다.
    쪽 크기·여백·배경 인쇄는 style.css의 @media print가 정하므로 인쇄 창 설정을 바꾸지 않아도 된다.
    글자 자동 맞춤은 보이는 상태에서만 잴 수 있어서, 화면에서는 #printHost를 화면 밖에 두고 잰다. */
+// 늦게까지 불러오지 못한 것이 있으면 true를 돌려준다
 async function buildPrintPages(indices = deck.slides.map((_, i) => i)) {
   const ph = $('printHost');
   ph.replaceChildren(...indices.map(i => {
@@ -1237,22 +1238,51 @@ async function buildPrintPages(indices = deck.slides.map((_, i) => i)) {
   const loaded = img => img.complete ? Promise.resolve() : new Promise(r => { img.onload = img.onerror = r; });
   const bg = new Image();
   bg.src = BG[deck.bg];
+  let late = false;
   await Promise.race([
     Promise.all([document.fonts.ready, loaded(bg), ...[...ph.querySelectorAll('img')].map(loaded)]),
-    new Promise(r => setTimeout(r, 3000)),
+    new Promise(r => setTimeout(() => { late = true; r(); }, 3000)),
   ]);
   fitText(ph);
+  return late;
+}
+
+/* 인쇄 작업은 한 번에 하나만. 준비하는 동안은 [PDF]·[만들기]를 잠근다.
+   펼쳐 둔 쪽과 파일 이름은 인쇄가 끝났다는 신호(afterprint)를 받은 뒤에 지운다
+   (인쇄 창이 기다려 주지 않는 브라우저도 있어서). 신호가 오지 않으면 다음 PDF를 시작할 때 지운다. */
+let printJob = null;   // { title, printing, warned }
+function setPdfBusy(on) { $('btnPdf').disabled = $('btnPdfMake').disabled = on; }
+function endPrintJob() {
+  if (!printJob) return;
+  document.title = printJob.title;
+  if (printJob.warned) setStatus('');
+  printJob = null;
+  window.removeEventListener('afterprint', endPrintJob);
+  $('printHost').replaceChildren();
 }
 async function printPdf(indices) {
-  releaseFocus();
-  flushSave();
-  await buildPrintPages(indices);
-  const title = document.title;
-  // PDF 파일 이름의 기본값. 일부만 고르면 쪽 번호를 붙인다 (예: 발표_v2_4-9_22)
-  const all = indices.length === deck.slides.length;
-  document.title = (packName() || 'Any-Slide') + (all ? '' : '_' + pagesToText(indices).replace(/,\s*/g, '_'));
-  try { window.print(); }
-  finally { document.title = title; $('printHost').replaceChildren(); }
+  if (printJob && !printJob.printing) return;   // 준비 중에 또 누름
+  endPrintJob();                                 // 지난 인쇄가 신호 없이 끝났으면 정리
+  const job = printJob = { title: document.title, printing: false };
+  setPdfBusy(true);
+  try {
+    releaseFocus();
+    flushSave();
+    const late = await buildPrintPages(indices);
+    if (printJob !== job) return;
+    if (late) { job.warned = true; setStatus('⚠ 일부 그림·글꼴을 3초 안에 불러오지 못해, 불러온 만큼으로 PDF를 만들어요.'); }
+    // PDF 파일 이름의 기본값. 일부만 고르면 쪽 번호를 붙인다 (예: 발표_v2_4-9_22)
+    const all = indices.length === deck.slides.length;
+    document.title = (packName() || 'Any-Slide') + (all ? '' : '_' + pagesToText(indices).replace(/,\s*/g, '_'));
+    job.printing = true;
+    window.addEventListener('afterprint', endPrintJob);
+    window.print();
+  } catch (e) {
+    endPrintJob();
+    setStatus(`⚠ PDF를 만들지 못했어요: ${e.message}`);
+  } finally {
+    setPdfBusy(false);
+  }
 }
 
 // 쪽 고르기 창: 글자로 적거나 번호를 눌러 고른다. 둘은 서로 맞춰진다.
@@ -1296,7 +1326,7 @@ function makePdf() {
     catch (e) { $('pdfMsg').textContent = e.message; return; }
   }
   $('pdfPanel').hidden = true;
-  printPdf(indices);
+  printPdf([...indices]);
 }
 
 /* ===== 발표 모드 ===== */
