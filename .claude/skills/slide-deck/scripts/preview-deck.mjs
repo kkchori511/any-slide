@@ -8,6 +8,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mediaDirOf, mediaRefs, missingMedia } from './media.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const file = process.argv[2];
@@ -34,6 +35,16 @@ const safe = JSON.stringify(JSON.stringify(deck)).replace(UNSAFE, c => '\\u' + c
 const inject = `<style>#hud{display:none!important}.slide,.slide *{animation:none!important}</style>`
   + `<script>try{localStorage.setItem('any-slide-deck-v1', ${safe})}catch(e){}</script>`;
 fs.writeFileSync(tmp, html.replace('<script src="deck-spec.js">', inject + '<script src="deck-spec.js">'));
+// 덱 전용 그림: 임시 페이지가 app/ 안에 있으므로 app/media를 그림 폴더에 잠시 연결한다
+const mediaLink = path.join(appDir, 'media');
+let linked = false;
+if (mediaRefs(deck).length) {
+  const dir = path.resolve(mediaDirOf(file));
+  const lost = missingMedia(deck, dir);
+  if (lost.length) console.error(`⚠ 덱 그림이 없음 (${dir}): ${lost.join(', ')}`);
+  if (fs.existsSync(mediaLink)) console.error(`⚠ ${mediaLink}가 이미 있어 덱 그림을 연결하지 않았어요`);
+  else if (fs.existsSync(dir)) { fs.symlinkSync(dir, mediaLink); linked = true; }
+}
 fs.mkdirSync(out, { recursive: true });
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'any-slide-chrome-'));
 
@@ -49,5 +60,6 @@ try {
   }
 } finally {
   fs.rmSync(tmp, { force: true });
+  if (linked) fs.unlinkSync(mediaLink);
   fs.rmSync(profile, { recursive: true, force: true });
 }

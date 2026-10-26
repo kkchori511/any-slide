@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
@@ -400,6 +400,9 @@ function allowedSrc() {
   const imgs = Object.values(TYPES).flatMap(t => t.objects.filter(o => o.k === 'img').map(o => o.src));
   return new Set([...STICKERS.map(s => s.src), ...imgs]);
 }
+// 덱 전용 그림(노션 그림 등): 발표 폴더의 media/ 바로 아래 그림 파일만 (하위 폴더, 주소 기호 차단)
+const MEDIA_RE = /^media\/[^/\\:?#%<>"'`.][^/\\:?#%<>"'`]*\.(png|jpe?g|webp|gif)$/i;
+const isMediaSrc = src => typeof src === 'string' && MEDIA_RE.test(src);
 
 // 허용한 필드만 새 객체로 복사한다. 잘못된 구조는 예외를 던져 호출한 쪽이 기존 덱을 지키게 한다.
 // 내용은 잘라 내지 않는다: 앱에서 만든 덱은 그대로 다시 열 수 있어야 한다.
@@ -408,7 +411,8 @@ function sanitize(d) {
     throw new Error('슬라이드가 없는 파일입니다.');
   }
   if (d.slides.length > MAX_SLIDES) throw new Error(`슬라이드가 ${MAX_SLIDES}장을 넘습니다.`);
-  const ok = allowedSrc();
+  const known = allowedSrc();
+  const ok = { has: src => known.has(src) || isMediaSrc(src) };
   const num = (v, min, max, dflt) => (Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : dflt);
   const int = (v, min, max, dflt) => Math.round(num(v, min, max, dflt));
 
@@ -486,7 +490,7 @@ function sanitize(d) {
 // Node에서 읽을 수 있게 내보낸다 (브라우저에서는 위 선언이 그대로 전역으로 쓰인다)
 globalThis.DeckSpec = {
   APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
-  TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc,
+  TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc,
   OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
   parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
 };

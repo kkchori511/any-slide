@@ -2,12 +2,13 @@
 // 덱 하나로 발표 폴더를 만든다. 폴더만 있으면 맥·윈도우 어디서나 Any-Slide.html을 열어 바로 발표할 수 있다.
 //
 // 사용법:
-//   node .claude/skills/slide-deck/scripts/pack-deck.mjs <덱.json> --title "슬라이드 제목" [--dest 저장할곳] [--version N] [--zip]
+//   node .claude/skills/slide-deck/scripts/pack-deck.mjs <덱.json> --title "슬라이드 제목" [--dest 저장할곳] [--version N] [--media 그림폴더] [--zip]
 //   node .claude/skills/slide-deck/scripts/pack-deck.mjs --zip-folder <발표 폴더>     (만들어 둔 폴더를 나중에 zip으로)
 //
 // - 저장할 곳 기본값: 바탕화면 (~/Desktop)
 // - 폴더 이름: <제목>_v<버전>. 버전은 같은 제목으로 덱을 만든 횟수다 (decks/생성기록.json). --version N으로 직접 정할 수 있다.
 // - 폴더 안: Any-Slide.html, 앱 파일(app.js, deck-spec.js, style.css), assets/, fonts/, 덱 JSON, deck-data.js(덱을 바로 여는 파일)
+// - 덱 전용 그림(media/<파일>)은 <덱 이름>_그림/ 폴더(--media로 바꿀 수 있음)에서 폴더 안 media/로 복사한다
 // - --zip: 폴더 안에 Any-Slide.zip을 만든다 (압축을 풀면 <제목>_v<버전> 폴더가 나온다)
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,6 +17,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mediaDirOf, mediaRefs, missingMedia } from './media.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const appDir = path.join(root, 'app');
@@ -69,6 +71,11 @@ let deck;
 try { deck = ctx.DeckSpec.sanitize(JSON.parse(fs.readFileSync(deckFile, 'utf8'))); }
 catch (e) { fail(`앱이 열 수 없는 덱: ${e.message}`); }
 
+// 덱 전용 그림이 모두 있어야 만든다 (빠진 그림은 발표 화면에서 빈칸이 된다)
+const mediaDir = path.resolve(opt('--media') || mediaDirOf(deckFile));
+const lost = missingMedia(deck, mediaDir);
+if (lost.length) fail(`덱 그림이 없음 (${mediaDir}): ${lost.join(', ')}`);
+
 // 폴더 이름에 못 쓰는 글자를 빼고, 앞의 점(숨김 폴더가 됨)도 뺀다
 const safeTitle = title.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_').replace(/^[.\s_]+/, '');
 if (!safeTitle) fail('제목에 폴더 이름으로 쓸 수 있는 글자가 없음');
@@ -91,6 +98,11 @@ if (fs.existsSync(folder)) fail(`같은 이름의 폴더가 이미 있음: ${fol
 fs.mkdirSync(folder);
 for (const f of ['app.js', 'deck-spec.js', 'style.css']) fs.copyFileSync(path.join(appDir, f), path.join(folder, f));
 for (const d of ['assets', 'fonts']) fs.cpSync(path.join(appDir, d), path.join(folder, d), { recursive: true, filter: s => !path.basename(s).startsWith('.') });
+const media = mediaRefs(deck);
+if (media.length) {
+  fs.mkdirSync(path.join(folder, 'media'));
+  for (const n of media) fs.copyFileSync(path.join(mediaDir, n), path.join(folder, 'media', n));
+}
 // 덱 JSON과 덱을 바로 여는 파일. 저장 공간 이름은 폴더마다 달라서 다른 발표 폴더와 섞이지 않는다.
 fs.writeFileSync(path.join(folder, `${name}.json`), JSON.stringify(deck, null, 2));
 // savedAt: 덱을 고친 시각. 앱은 브라우저에 저장된 것과 비교해 최신 쪽을 연다 ([폴더에 저장]이 갱신한다).
