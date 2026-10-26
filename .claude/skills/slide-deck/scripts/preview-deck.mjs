@@ -38,9 +38,9 @@ fs.writeFileSync(tmp, html.replace('<script src="deck-spec.js">', inject + '<scr
 // 덱 전용 그림: 임시 페이지가 app/ 안에 있으므로 app/media를 그림 폴더에 잠시 연결한다
 const mediaLink = path.join(appDir, 'media');
 let linked = false;
-if (mediaRefs(deck).length) {
+if (mediaRefs(deck, ctx.DeckSpec.isMediaSrc).length) {
   const dir = path.resolve(mediaDirOf(file));
-  const lost = missingMedia(deck, dir);
+  const lost = missingMedia(deck, dir, ctx.DeckSpec.isMediaSrc);
   if (lost.length) console.error(`⚠ 덱 그림이 없음 (${dir}): ${lost.join(', ')}`);
   if (fs.existsSync(mediaLink)) console.error(`⚠ ${mediaLink}가 이미 있어 덱 그림을 연결하지 않았어요`);
   else if (fs.existsSync(dir)) { fs.symlinkSync(dir, mediaLink); linked = true; }

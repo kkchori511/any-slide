@@ -85,7 +85,7 @@ raw.slides.forEach((s, i) => {
 });
 
 // 덱 전용 그림이 그림 폴더에 있는지 (없으면 발표 폴더를 만들 수 없다)
-const lost = missingMedia(deck, mediaDirOf(file));
+const lost = missingMedia(deck, mediaDirOf(file), ctx.DeckSpec.isMediaSrc);
 if (lost.length) warns.push(`덱 그림이 ${mediaDirOf(file)}/ 에 없음: ${lost.join(', ')}`);
 console.log(`✔ 앱이 열 수 있는 덱: ${deck.slides.length}장`);
 for (const w of warns) console.log(`  ⚠ ${w}`);

@@ -73,7 +73,7 @@ catch (e) { fail(`앱이 열 수 없는 덱: ${e.message}`); }
 
 // 덱 전용 그림이 모두 있어야 만든다 (빠진 그림은 발표 화면에서 빈칸이 된다)
 const mediaDir = path.resolve(opt('--media') || mediaDirOf(deckFile));
-const lost = missingMedia(deck, mediaDir);
+const lost = missingMedia(deck, mediaDir, ctx.DeckSpec.isMediaSrc);
 if (lost.length) fail(`덱 그림이 없음 (${mediaDir}): ${lost.join(', ')}`);
 
 // 폴더 이름에 못 쓰는 글자를 빼고, 앞의 점(숨김 폴더가 됨)도 뺀다
@@ -98,7 +98,7 @@ if (fs.existsSync(folder)) fail(`같은 이름의 폴더가 이미 있음: ${fol
 fs.mkdirSync(folder);
 for (const f of ['app.js', 'deck-spec.js', 'style.css']) fs.copyFileSync(path.join(appDir, f), path.join(folder, f));
 for (const d of ['assets', 'fonts']) fs.cpSync(path.join(appDir, d), path.join(folder, d), { recursive: true, filter: s => !path.basename(s).startsWith('.') });
-const media = mediaRefs(deck);
+const media = mediaRefs(deck, ctx.DeckSpec.isMediaSrc);
 if (media.length) {
   fs.mkdirSync(path.join(folder, 'media'));
   for (const n of media) fs.copyFileSync(path.join(mediaDir, n), path.join(folder, 'media', n));

@@ -400,9 +400,11 @@ function allowedSrc() {
   const imgs = Object.values(TYPES).flatMap(t => t.objects.filter(o => o.k === 'img').map(o => o.src));
   return new Set([...STICKERS.map(s => s.src), ...imgs]);
 }
-// 덱 전용 그림(노션 그림 등): 발표 폴더의 media/ 바로 아래 그림 파일만 (하위 폴더, 주소 기호 차단)
-const MEDIA_RE = /^media\/[^/\\:?#%<>"'`.][^/\\:?#%<>"'`]*\.(png|jpe?g|webp|gif)$/i;
-const isMediaSrc = src => typeof src === 'string' && MEDIA_RE.test(src);
+// 덱 전용 그림(노션 그림 등): 발표 폴더의 media/ 바로 아래 그림 파일만.
+// 폴더 이름은 소문자 media/만, 확장자는 대소문자 모두. 하위 폴더·주소 기호·제어문자(주소에서 지워져 다른 파일이 됨)와 앞뒤 공백은 막는다.
+const MEDIA_NAME = /^media\/[^/\\:?#%<>"'`.\s\x00-\x1f\x7f][^/\\:?#%<>"'`\x00-\x1f\x7f]*$/;
+const MEDIA_EXT = /\.(png|jpe?g|webp|gif)$/i;
+const isMediaSrc = src => typeof src === 'string' && MEDIA_NAME.test(src) && MEDIA_EXT.test(src) && !/\s\.[^.]+$/.test(src);
 
 // 허용한 필드만 새 객체로 복사한다. 잘못된 구조는 예외를 던져 호출한 쪽이 기존 덱을 지키게 한다.
 // 내용은 잘라 내지 않는다: 앱에서 만든 덱은 그대로 다시 열 수 있어야 한다.

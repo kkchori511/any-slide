@@ -5,16 +5,16 @@ import path from 'node:path';
 
 export const mediaDirOf = deckFile => deckFile.replace(/\.json$/i, '') + '_그림';
 
-// 덱이 가리키는 media/ 그림 파일 이름 (그림 칸과 스티커)
-export function mediaRefs(deck) {
+// 덱이 가리키는 media/ 그림 파일 이름 (그림 칸과 스티커). isMediaSrc는 앱과 같은 규칙(deck-spec.js)을 넘겨받는다.
+export function mediaRefs(deck, isMediaSrc) {
   const names = new Set();
   for (const s of deck.slides) {
     for (const src of [s.img, ...(s.stickers || []).map(k => k.src)]) {
-      if (typeof src === 'string' && src.startsWith('media/')) names.add(src.slice(6));
+      if (isMediaSrc(src)) names.add(src.slice(6));
     }
   }
   return [...names];
 }
 
 // 그림 폴더에 없는 파일 이름
-export const missingMedia = (deck, dir) => mediaRefs(deck).filter(n => !fs.existsSync(path.join(dir, n)));
+export const missingMedia = (deck, dir, isMediaSrc) => mediaRefs(deck, isMediaSrc).filter(n => !fs.existsSync(path.join(dir, n)));
