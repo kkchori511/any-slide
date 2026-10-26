@@ -269,3 +269,22 @@ body.present.idle { cursor: none; }
 #hud { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); color: #fff; font-size: 14px; padding: 4px 14px; border-radius: 999px; opacity: 0; transition: opacity .3s; pointer-events: none; display: none; }
 body.present #hud { display: block; }
 body.present:not(.idle) #hud { opacity: 1; }
+
+/* ===== PDF로 저장 =====
+   화면에서는 #printHost를 화면 밖에 둔다(글자 맞춤을 재려면 보이는 상태여야 한다).
+   인쇄할 때는 앱 화면을 모두 숨기고 1920x1080 쪽만 여백 없이, 배경까지 찍는다. */
+#printHost { position: absolute; left: -40000px; top: 0; }
+.print-page { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+.print-page .slot.empty { visibility: hidden; }
+.print-page .over { outline: none; }
+@media print {
+  @page { size: 1920px 1080px; margin: 0; }
+  html, body { width: 1920px; height: auto; overflow: visible; background: none; }
+  body { display: block; }
+  body > :not(#printHost) { display: none !important; }
+  #printHost { position: static; }
+  .print-page { break-after: page; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-page:last-child { break-after: auto; }
+  /* 흐린 그림자는 PDF에서 회색 상자로 찍힐 때가 있어 옅은 테두리로 바꾼다 */
+  .print-page .slot img[src^="media/"] { box-shadow: none; border: 2px solid rgba(40, 50, 70, .14); }
+}

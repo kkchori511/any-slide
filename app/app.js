@@ -1219,6 +1219,38 @@ function syncToolbar() {
   syncSettings();
 }
 
+/* ===== PDF로 저장 =====
+   모든 장을 등장 효과 없이 1920x1080 쪽으로 펼쳐 놓고 브라우저 인쇄 창을 연다(인쇄 창에서 'PDF로 저장').
+   쪽 크기·여백·배경 인쇄는 style.css의 @media print가 정하므로 인쇄 창 설정을 바꾸지 않아도 된다.
+   글자 자동 맞춤은 보이는 상태에서만 잴 수 있어서, 화면에서는 #printHost를 화면 밖에 두고 잰다. */
+async function buildPrintPages() {
+  const ph = $('printHost');
+  ph.replaceChildren(...deck.slides.map(s => {
+    const page = document.createElement('div');
+    page.className = 'print-page';
+    page.appendChild(makeSlide(s, { editable: false, animate: false }));
+    return page;
+  }));
+  // 글꼴·그림·배경을 불러온 뒤에 맞추고 인쇄한다. 빠지거나 늦는 그림 때문에 멈추지 않게 3초까지만 기다린다.
+  const loaded = img => img.complete ? Promise.resolve() : new Promise(r => { img.onload = img.onerror = r; });
+  const bg = new Image();
+  bg.src = BG[deck.bg];
+  await Promise.race([
+    Promise.all([document.fonts.ready, loaded(bg), ...[...ph.querySelectorAll('img')].map(loaded)]),
+    new Promise(r => setTimeout(r, 3000)),
+  ]);
+  fitText(ph);
+}
+async function printPdf() {
+  releaseFocus();
+  flushSave();
+  await buildPrintPages();
+  const title = document.title;
+  document.title = packName() || 'Any-Slide';   // PDF 파일 이름의 기본값
+  try { window.print(); }
+  finally { document.title = title; $('printHost').replaceChildren(); }
+}
+
 /* ===== 발표 모드 ===== */
 let idleTimer = 0;
 function setMode(m) {
@@ -1379,6 +1411,7 @@ function buildToolbar() {
     download('any-slide-deck.json', JSON.stringify(deck, null, 2));
   });
   $('btnImport').addEventListener('click', () => $('fileImport').click());
+  $('btnPdf').addEventListener('click', printPdf);
   if (PACK) { $('btnSaveFolder').hidden = false; $('btnSaveFolder').addEventListener('click', saveToFolder); }
   $('fileImport').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
@@ -1413,6 +1446,8 @@ if (brokenRaw && confirm('저장된 덱을 읽지 못했고 복구용 보관에�
   download('any-slide-broken-backup.json', brokenRaw);
 }
 // 해시로 시작 위치 지정: #s=3 (슬라이드 번호), #s=3&view (전체 화면 없이 발표 화면으로 열기)
+// #pdf: 인쇄 창 없이 PDF용 쪽만 펼쳐 둔다 (헤드리스 Chrome --print-to-pdf로 확인할 때)
 const hash = new URLSearchParams(location.hash.slice(1));
 go(Math.max(0, (parseInt(hash.get('s'), 10) || 1) - 1));
 if (hash.has('view')) setMode('present');
+if (hash.has('pdf')) buildPrintPages();

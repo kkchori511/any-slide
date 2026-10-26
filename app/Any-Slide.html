@@ -27,6 +27,7 @@
     <div class="group">
       <button id="btnExport" title="덱을 JSON 파일로 저장">저장</button>
       <button id="btnImport" title="JSON 파일 불러오기">불러오기</button>
+      <button id="btnPdf" title="모든 장을 PDF로 저장 (인쇄 창에서 대상을 'PDF로 저장'으로 고르세요)">PDF</button>
       <button id="btnSaveFolder" title="고친 덱을 이 발표 폴더 안의 파일에 저장 (다른 컴퓨터로 옮기기 전에)" hidden>폴더에 저장</button>
       <button id="btnReset" class="danger" title="처음 상태로">초기화</button>
     </div>
@@ -73,6 +74,8 @@
 </div>
 
 <div id="hud" aria-live="polite"></div>
+<!-- PDF로 저장할 때 모든 장을 펼쳐 두는 곳 (인쇄할 때만 보인다) -->
+<div id="printHost" aria-hidden="true"></div>
 <input id="fileImport" type="file" accept="application/json,.json" hidden>
 <script src="deck-spec.js"></script>
 <script src="app.js"></script>
