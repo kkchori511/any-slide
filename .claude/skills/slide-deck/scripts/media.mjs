@@ -16,5 +16,10 @@ export function mediaRefs(deck, isMediaSrc) {
   return [...names];
 }
 
-// 그림 폴더에 없는 파일 이름
-export const missingMedia = (deck, dir, isMediaSrc) => mediaRefs(deck, isMediaSrc).filter(n => !fs.existsSync(path.join(dir, n)));
+// 읽을 수 있는 실제 파일인지 (같은 이름의 폴더나 읽기 권한 없는 파일은 빠진 것으로 본다)
+function readableFile(p) {
+  try { fs.accessSync(p, fs.constants.R_OK); return fs.statSync(p).isFile(); } catch (e) { return false; }
+}
+
+// 그림 폴더에 없거나 읽을 수 없는 파일 이름
+export const missingMedia = (deck, dir, isMediaSrc) => mediaRefs(deck, isMediaSrc).filter(n => !readableFile(path.join(dir, n)));

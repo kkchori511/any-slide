@@ -74,7 +74,7 @@ catch (e) { fail(`앱이 열 수 없는 덱: ${e.message}`); }
 // 덱 전용 그림이 모두 있어야 만든다 (빠진 그림은 발표 화면에서 빈칸이 된다)
 const mediaDir = path.resolve(opt('--media') || mediaDirOf(deckFile));
 const lost = missingMedia(deck, mediaDir, ctx.DeckSpec.isMediaSrc);
-if (lost.length) fail(`덱 그림이 없음 (${mediaDir}): ${lost.join(', ')}`);
+if (lost.length) fail(`덱 그림이 없거나 읽을 수 없음 (${mediaDir}): ${lost.join(', ')}`);
 
 // 폴더 이름에 못 쓰는 글자를 빼고, 앞의 점(숨김 폴더가 됨)도 뺀다
 const safeTitle = title.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_').replace(/^[.\s_]+/, '');
@@ -94,23 +94,35 @@ const name = `${safeTitle}_v${version}`;
 const folder = path.join(dest, name);
 if (fs.existsSync(folder)) fail(`같은 이름의 폴더가 이미 있음: ${folder} (지우거나 옮긴 뒤 다시 실행)`);
 
-// 앱 파일 복사
-fs.mkdirSync(folder);
-for (const f of ['app.js', 'deck-spec.js', 'style.css']) fs.copyFileSync(path.join(appDir, f), path.join(folder, f));
-for (const d of ['assets', 'fonts']) fs.cpSync(path.join(appDir, d), path.join(folder, d), { recursive: true, filter: s => !path.basename(s).startsWith('.') });
-const media = mediaRefs(deck, ctx.DeckSpec.isMediaSrc);
-if (media.length) {
-  fs.mkdirSync(path.join(folder, 'media'));
-  for (const n of media) fs.copyFileSync(path.join(mediaDir, n), path.join(folder, 'media', n));
+// 같은 곳의 숨김 임시 폴더에서 다 만든 뒤 마지막에 최종 이름으로 바꾼다.
+// 도중에 실패하거나 멈추면 이번에 만든 임시 폴더만 지워서, 덜 만든 발표 폴더가 남지 않게 한다.
+const work = path.join(dest, `.${name}.making-${process.pid}`);
+const dropWork = () => fs.rmSync(work, { recursive: true, force: true });
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { dropWork(); process.exit(130); });
+try {
+  fs.mkdirSync(work);
+  // 앱 파일 복사
+  for (const f of ['app.js', 'deck-spec.js', 'style.css']) fs.copyFileSync(path.join(appDir, f), path.join(work, f));
+  for (const d of ['assets', 'fonts']) fs.cpSync(path.join(appDir, d), path.join(work, d), { recursive: true, filter: s => !path.basename(s).startsWith('.') });
+  const media = mediaRefs(deck, ctx.DeckSpec.isMediaSrc);
+  if (media.length) {
+    fs.mkdirSync(path.join(work, 'media'));
+    for (const n of media) fs.copyFileSync(path.join(mediaDir, n), path.join(work, 'media', n));
+  }
+  // 덱 JSON과 덱을 바로 여는 파일. 저장 공간 이름은 폴더마다 달라서 다른 발표 폴더와 섞이지 않는다.
+  fs.writeFileSync(path.join(work, `${name}.json`), JSON.stringify(deck, null, 2));
+  // savedAt: 덱을 고친 시각. 앱은 브라우저에 저장된 것과 비교해 최신 쪽을 연다 ([폴더에 저장]이 갱신한다).
+  const pack = { key: `any-slide:${name}:${crypto.randomBytes(4).toString('hex')}`, title: safeTitle, version, savedAt: new Date().toISOString(), deck };
+  fs.writeFileSync(path.join(work, 'deck-data.js'), `// ${name} 덱. Any-Slide.html이 이 덱을 바로 연다.\nwindow.ANY_SLIDE_PACK = ${JSON.stringify(pack)};\n`);
+  const html = fs.readFileSync(path.join(appDir, 'Any-Slide.html'), 'utf8');
+  if (!html.includes('<script src="deck-spec.js">')) throw new Error('Any-Slide.html 구조가 예상과 다름');
+  fs.writeFileSync(path.join(work, 'Any-Slide.html'), html.replace('<script src="deck-spec.js">', '<script src="deck-data.js"></script>\n<script src="deck-spec.js">'));
+  if (fs.existsSync(folder)) throw new Error(`같은 이름의 폴더가 그사이 생겼음: ${folder}`);
+  fs.renameSync(work, folder);
+} catch (e) {
+  dropWork();
+  fail(`발표 폴더를 만들지 못했어요 (만들던 것은 지웠어요): ${e.message}`);
 }
-// 덱 JSON과 덱을 바로 여는 파일. 저장 공간 이름은 폴더마다 달라서 다른 발표 폴더와 섞이지 않는다.
-fs.writeFileSync(path.join(folder, `${name}.json`), JSON.stringify(deck, null, 2));
-// savedAt: 덱을 고친 시각. 앱은 브라우저에 저장된 것과 비교해 최신 쪽을 연다 ([폴더에 저장]이 갱신한다).
-const pack = { key: `any-slide:${name}:${crypto.randomBytes(4).toString('hex')}`, title: safeTitle, version, savedAt: new Date().toISOString(), deck };
-fs.writeFileSync(path.join(folder, 'deck-data.js'), `// ${name} 덱. Any-Slide.html이 이 덱을 바로 연다.\nwindow.ANY_SLIDE_PACK = ${JSON.stringify(pack)};\n`);
-const html = fs.readFileSync(path.join(appDir, 'Any-Slide.html'), 'utf8');
-if (!html.includes('<script src="deck-spec.js">')) fail('Any-Slide.html 구조가 예상과 다름');
-fs.writeFileSync(path.join(folder, 'Any-Slide.html'), html.replace('<script src="deck-spec.js">', '<script src="deck-data.js"></script>\n<script src="deck-spec.js">'));
 
 // 생성 기록 (decks/는 git에 올리지 않는다). 기록이 깨졌으면 손대지 않는다.
 if (!records) console.log(`⚠ 생성 기록이 깨져 있어 이번 버전은 기록하지 않았어요: ${recordFile}`);
