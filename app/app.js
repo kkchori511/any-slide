@@ -166,7 +166,8 @@ function esc(s) {
 function runsToHTML(runs) {
   return runs.map(r => {
     let h = esc(r.text).replace(/\n/g, '<br>');
-    if (r.c) h = `<span class="c-${r.c}">${h}</span>`;
+    // 목록의 색은 class, 다른 색(#rrggbb, 검증된 값)은 style과 data-c로 둔다 (data-c는 편집한 글을 다시 읽을 때 쓴다)
+    if (r.c) h = r.c[0] === '#' ? `<span class="cx" data-c="${r.c}" style="color:${r.c}">${h}</span>` : `<span class="c-${r.c}">${h}</span>`;
     if (r.m) h = `<mark>${h}</mark>`;
     if (r.u) h = `<u>${h}</u>`;
     if (r.b) h = `<b>${h}</b>`;
@@ -207,6 +208,7 @@ function domItems(root) {
       else if (ch.tagName === 'MARK') s2 = { ...s2, m: true };
       const cm = /(?:^|\s)c-([a-z]+)/.exec(ch.className || '');
       if (cm && Object.hasOwn(PALETTE, cm[1])) s2 = { ...s2, c: cm[1] };
+      else if (ch.classList.contains('cx') && textColor(ch.dataset.c)) s2 = { ...s2, c: textColor(ch.dataset.c) };
       if (BLOCK.test(ch.tagName)) {
         if (items.length) items.push({ node: ch, text: '\n', st, block });   // 블록 앞은 줄바꿈
         afterBlock = null;
@@ -1032,6 +1034,19 @@ function ctxButton(label, title, fn, cls = '') {
   b.addEventListener('click', fn);
   return b;
 }
+// [다른 색]: 브라우저의 색 고르기 창. 창을 닫을 때(change) 한 번만 적용한다.
+// 칸 안의 선택은 lastRange에 남아 있어서, 창으로 포커스가 옮겨 가도 고른 글자에 칠해진다.
+let lastPicked = '#1a73e8';
+function colorPicker(el) {
+  const inp = document.createElement('input');
+  inp.type = 'color'; inp.className = 'swatch pick'; inp.value = lastPicked;
+  inp.title = '다른 색 (스펙트럼에서 고르기)'; inp.dataset.key = inp.title;
+  inp.addEventListener('change', () => {
+    const c = textColor(inp.value);
+    if (c) { lastPicked = c; applyFormat(el, { color: c }); }
+  });
+  return inp;
+}
 function ctxGroup(label, ...nodes) {
   const g = document.createElement('div');
   g.className = 'group';
@@ -1065,7 +1080,7 @@ function buildCtx(bar) {
           ctxButton('B', '굵게 (⌘B)', () => applyFormat(el, 'b'), 'fmt-b'),
           ctxButton('U', '밑줄 (⌘U)', () => applyFormat(el, 'u'), 'fmt-u'),
           ctxButton('형광펜', '형광펜', () => applyFormat(el, 'm'), 'fmt-m')),
-        ctxGroup('색', ctxButton('', '기본 색', () => applyFormat(el, { color: null }), 'swatch none'), ...swatches),
+        ctxGroup('색', ctxButton('', '기본 색', () => applyFormat(el, { color: null }), 'swatch none'), ...swatches, colorPicker(el)),
       );
     }
     // 크기는 누를 때마다 현재 값을 읽는다 (연속으로 눌러도 한 단계씩)

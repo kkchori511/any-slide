@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
@@ -26,13 +26,18 @@ const STICKERS = [
 ];
 
 // 글자 색 (핵심 브리프의 소품 색에서 고름). 덱 파일에는 이름으로 저장한다.
+// 목록에 없는 색은 {{#1a73e8:글자}}처럼 #과 16진수 6자리로 쓴다 (앱의 [다른 색]).
 const PALETTE = {
   red: { label: '빨강', color: '#d64541' },
   blue: { label: '파랑', color: '#2e6bd0' },
   green: { label: '초록', color: '#2f9e55' },
   orange: { label: '주황', color: '#e07b1f' },
   gray: { label: '회색', color: '#8a8179' },
+  black: { label: '검정', color: '#1a1a1a' },
 };
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+// 표기의 색 값: 목록의 이름 또는 #rrggbb (소문자로 맞춘다). 아니면 null
+const textColor = c => typeof c !== 'string' ? null : Object.hasOwn(PALETTE, c) ? c : HEX_COLOR.test(c) ? c.toLowerCase() : null;
 
 // 덱 설정: 장 전환, 글자·그림 등장
 const TRANSITIONS = { none: '없음', fade: '페이드', slide: '밀기', zoom: '확대', rise: '위로 올라오기' };
@@ -300,7 +305,7 @@ function slideAligns(slide) {
 }
 
 /* ===== 글자 서식 표기 =====
-   **굵게**  __밑줄__  ==형광펜==  {{red:색 글자}}  \* 처럼 \ 뒤 글자는 그대로
+   **굵게**  __밑줄__  ==형광펜==  {{red:색 글자}}  {{#1a73e8:다른 색}}  \* 처럼 \ 뒤 글자는 그대로
    서로 겹쳐 써도 된다. 닫지 않은 표기는 글 끝에서 닫힌다. */
 const MARKS = { '**': 'b', '__': 'u', '==': 'm' };
 function parseMarkup(s) {
@@ -313,8 +318,9 @@ function parseMarkup(s) {
     if (ch === '\\' && i + 1 < s.length) { buf += s[++i]; continue; }
     if (MARKS[two]) { flush(); st = { ...st, [MARKS[two]]: !st[MARKS[two]] }; i++; continue; }
     if (two === '{{') {
-      const m = /^\{\{([a-z]+):/.exec(s.slice(i));
-      if (m && Object.hasOwn(PALETTE, m[1])) { flush(); colors.push(st.c); st = { ...st, c: m[1] }; i += m[0].length - 1; continue; }
+      const m = /^\{\{([a-z]+|#[0-9a-fA-F]{6}):/.exec(s.slice(i));
+      const c = m && textColor(m[1]);
+      if (c) { flush(); colors.push(st.c); st = { ...st, c }; i += m[0].length - 1; continue; }
     }
     if (two === '}}' && colors.length) { flush(); st = { ...st, c: colors.pop() }; i++; continue; }
     buf += ch;
@@ -491,7 +497,7 @@ function sanitize(d) {
 
 // Node에서 읽을 수 있게 내보낸다 (브라우저에서는 위 선언이 그대로 전역으로 쓰인다)
 globalThis.DeckSpec = {
-  APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
+  APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, textColor, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
   TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc,
   OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
   parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
