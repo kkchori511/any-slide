@@ -413,10 +413,12 @@ const MEDIA_EXT = /\.(png|jpe?g|webp|gif)$/i;
 const isMediaSrc = src => typeof src === 'string' && MEDIA_NAME.test(src) && MEDIA_EXT.test(src) && !/\s\.[^.]+$/.test(src);
 // 내 그림: 앱에서 넣은 그림. 덱의 images에 { id: data 주소 }로 넣고, 그림 칸과 스티커에서는 'user:<id>'로 가리킨다.
 // 앱이 줄여서 다시 그린 PNG·JPEG·WEBP의 base64만 받는다 (SVG나 외부 주소는 막는다).
+// base64는 4글자 단위로 끝까지 채운 것만 받는다 (앱이 만드는 모양. 길이가 어긋나면 풀 때 오류가 난다).
 const USER_IMG_ID = /^u[0-9a-z]{1,23}$/;
 const USER_IMG_DATA = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 const MAX_USER_IMAGES = 60, MAX_USER_IMG_CHARS = 3000000;
-const isUserImgData = v => typeof v === 'string' && v.length <= MAX_USER_IMG_CHARS && USER_IMG_DATA.test(v);
+const isUserImgData = v => typeof v === 'string' && v.length <= MAX_USER_IMG_CHARS && USER_IMG_DATA.test(v)
+  && (v.length - v.indexOf(',') - 1) % 4 === 0;
 const userImgId = src => typeof src === 'string' && src.startsWith('user:') && USER_IMG_ID.test(src.slice(5)) ? src.slice(5) : null;
 
 // 허용한 필드만 새 객체로 복사한다. 잘못된 구조는 예외를 던져 호출한 쪽이 기존 덱을 지키게 한다.

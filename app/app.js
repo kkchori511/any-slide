@@ -87,18 +87,22 @@ function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 200);
 }
+// 돌려주는 값: 지금 덱이 브라우저에 저장돼 있으면 true, 이번에 저장하지 못했으면 false
 function flushSave() {
   clearTimeout(saveTimer);
-  if (!dirty || packBroken) return;   // 폴더 덱을 못 읽어 연 예제 덱은 폴더 저장 공간에 저장하지 않는다
+  if (!dirty) return true;
+  if (packBroken) return false;   // 폴더 덱을 못 읽어 연 예제 덱은 폴더 저장 공간에 저장하지 않는다
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(deck));
     localStorage.setItem(SAVED_AT_KEY, new Date().toISOString());
     dirty = false;
     if (saveFailed) { saveFailed = false; setStatus(''); updateHud(); }   // 불러오기 경고는 저장 성공으로 지우지 않음
+    return true;
   } catch (e) {
     saveFailed = true;
     setStatus('⚠ 자동 저장 실패: 브라우저 저장 공간을 쓸 수 없어요. [저장] 버튼으로 파일을 내려받아 두세요.');
     updateHud();
+    return false;
   }
 }
 function setStatus(msg) {
@@ -1201,20 +1205,30 @@ function slotGroup(slide) {
 // 화면에는 data 주소 대신 Blob 주소를 써서 썸네일·인쇄마다 긴 글자열을 다시 넣지 않는다.
 const USER_IMG_SIDE = 1600;
 const userImgCache = new Map();   // id → { data, url }
+// 풀지 못하는 그림은 빈 주소로 두어 그 그림만 비고 앱은 계속 움직이게 한다
 function userImgURL(id) {
   const data = deck.images && deck.images[id];
   if (!data) return '';
   let c = userImgCache.get(id);
   if (!c || c.data !== data) {
-    if (c) URL.revokeObjectURL(c.url);
-    const comma = data.indexOf(',');
-    const bin = atob(data.slice(comma + 1)), bytes = new Uint8Array(bin.length);
+    if (c) { URL.revokeObjectURL(c.url); userImgCache.delete(id); }
+    let bin;
+    try { bin = atob(data.slice(data.indexOf(',') + 1)); } catch (e) { return ''; }
+    const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     c = { data, url: URL.createObjectURL(new Blob([bytes], { type: data.slice(5, data.indexOf(';')) })) };
     userImgCache.set(id, c);
   }
   return c.url;
 }
+// 덱을 바꾼 뒤(불러오기·초기화) 지금 덱에 없는 그림의 Blob 주소를 놓아 준다
+function pruneUserImgCache() {
+  for (const [id, c] of userImgCache) {
+    if (!deck.images || deck.images[id] !== c.data) { URL.revokeObjectURL(c.url); userImgCache.delete(id); }
+  }
+}
+// 덱을 바꿀 때마다 올린다. 그림을 줄이는 동안 덱이 바뀌면 그 그림은 넣지 않는다.
+let deckGen = 0;
 function srcURL(src) {
   const id = userImgId(src);
   return id ? userImgURL(id) : src;
@@ -1251,14 +1265,27 @@ async function fileToUserImage(file) {
     if (side <= 400) throw new Error('그림이 너무 커서 넣지 못했어요.');
   }
 }
-// 그림 파일 여러 개를 차례로 넣는다. forSlot이면 첫 그림은 이 장의 그림 칸에, 나머지는 스티커로.
-async function addUserImages(files, forSlot) {
-  for (const f of files) {
-    let r;
-    try { r = await fileToUserImage(f); } catch (e) { alert(e.message); continue; }
-    if (!placeUserImage(r, forSlot)) break;
-    forSlot = false;
-  }
+// 그림 파일 여러 개를 차례로 넣는다. forSlot이면 첫 그림은 그 장의 그림 칸에, 나머지는 스티커로.
+// 넣을 장은 시작할 때 정한다. 그림을 줄이는 동안 다른 장으로 가도 그 장에 넣고 그 장을 보여 준다.
+// 그동안 덱을 바꿨거나(불러오기·초기화), 그 장을 지웠거나, 발표를 시작했으면 넣지 않는다.
+// 여러 번 넣으면(연속 붙여넣기 등) 앞의 것이 끝난 뒤 차례로 처리한다.
+let userImgQueue = Promise.resolve();
+function addUserImages(files, forSlot) {
+  const gen = deckGen, slide = deck.slides[cur];
+  const job = async () => {
+    for (const f of files) {
+      let r;
+      try { r = await fileToUserImage(f); } catch (e) { alert(e.message); continue; }
+      if (gen !== deckGen || mode !== 'edit' || !deck.slides.includes(slide)) {
+        setStatus('그림을 준비하는 동안 덱이나 장이 바뀌어서 그림을 넣지 않았어요.');
+        return;
+      }
+      if (!placeUserImage(r, forSlot, slide)) return;
+      forSlot = false;
+    }
+  };
+  userImgQueue = userImgQueue.then(job, job);
+  return userImgQueue;
 }
 function userSticker(src, w, h) {
   const aspect = w / h || 1;
@@ -1266,38 +1293,39 @@ function userSticker(src, w, h) {
   const sh = Math.round(sw / aspect);
   return { src, w: sw, x: Math.round(W / 2 - sw / 2), y: Math.round(Math.max(-sw / 2, H / 2 - sh / 2)), rot: 0, flip: false, float: false };
 }
-// 저장 공간이 모자라 저장하지 못하면 넣은 것을 되돌린다 (그 뒤의 자동 저장이 모두 실패하지 않게)
-function placeUserImage({ data, w, h }, forSlot) {
-  deck.images ||= {};
-  let id = Object.keys(deck.images).find(k => deck.images[k] === data);
+// 넣은 뒤 바로 저장해 보고, 이번에 저장하지 못하면 넣은 것을 되돌린다 (새로고침하면 사라질 그림을 남기지 않게)
+function placeUserImage({ data, w, h }, forSlot, slide) {
+  if (slide.stickers.length >= MAX_STICKERS && !forSlot) { alert(`한 장에는 스티커를 ${MAX_STICKERS}개까지 넣을 수 있어요.`); return false; }
+  const images = deck.images || {};
+  let id = Object.keys(images).find(k => images[k] === data);
   const isNew = !id;
   if (isNew) {
-    if (Object.keys(deck.images).length >= MAX_USER_IMAGES) { alert(`내 그림은 ${MAX_USER_IMAGES}개까지 넣을 수 있어요.`); return false; }
-    do id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); while (deck.images[id]);
-    deck.images[id] = data;
+    if (Object.keys(images).length >= MAX_USER_IMAGES) { alert(`내 그림은 ${MAX_USER_IMAGES}개까지 넣을 수 있어요.`); return false; }
+    do id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); while (images[id]);
+    deck.images = images;
+    images[id] = data;
   }
-  const slide = deck.slides[cur], src = 'user:' + id;
-  const before = { img: slide.img, n: slide.stickers.length };
+  const idx = deck.slides.indexOf(slide), src = 'user:' + id;
+  const before = { img: slide.img, n: slide.stickers.length, sel };
   if (forSlot) slide.img = src;
-  else {
-    if (slide.stickers.length >= MAX_STICKERS) { alert(`한 장에는 스티커를 ${MAX_STICKERS}개까지 넣을 수 있어요.`); if (isNew) delete deck.images[id]; return false; }
-    slide.stickers.push(userSticker(src, w, h));
-    sel = slide.stickers.length - 1;
-  }
-  const wasFailing = saveFailed;
-  dirty = true; flushSave();
-  if (saveFailed && !wasFailing) {
-    if (isNew) delete deck.images[id];
-    if (!Object.keys(deck.images).length) delete deck.images;
+  else slide.stickers.push(userSticker(src, w, h));
+  dirty = true;
+  if (!flushSave()) {
+    if (isNew) delete images[id];
+    if (!Object.keys(images).length) delete deck.images;
     if (before.img === undefined) delete slide.img; else slide.img = before.img;
     slide.stickers.length = before.n;
-    sel = -1;
+    sel = before.sel;
     dirty = true; flushSave();
-    alert('브라우저 저장 공간이 가득 차서 그림을 넣지 못했어요. 더 작은 그림을 쓰거나 쓰지 않는 [내 그림]을 지워 주세요.');
+    alert(packBroken
+      ? '이 폴더의 덱을 읽지 못한 상태라 그림을 넣을 수 없어요. [불러오기]로 덱을 먼저 여세요.'
+      : '브라우저에 저장하지 못해서 그림을 넣지 않았어요. 저장 공간이 가득 찼다면 더 작은 그림을 쓰거나 쓰지 않는 [내 그림]을 지워 주세요.');
     redraw(true);
     return false;
   }
   if (forSlot) $('stickerPanel').hidden = true;
+  if (idx !== cur) go(idx, true);
+  if (!forSlot) sel = slide.stickers.length - 1;
   redraw(true);
   if (!$('stickerPanel').hidden) renderStickerGrid();
   return true;
@@ -1635,6 +1663,7 @@ function buildToolbar() {
   $('btnAbout').addEventListener('click', e => {
     e.stopPropagation();
     $('aboutPop').hidden = !$('aboutPop').hidden;
+    if (!$('aboutPop').hidden) $('helpPanel').hidden = true;
   });
   document.addEventListener('pointerdown', e => {
     if (!$('aboutPop').hidden && !e.target.closest('#aboutPop, #btnAbout')) $('aboutPop').hidden = true;
@@ -1682,15 +1711,17 @@ function buildToolbar() {
       deck = next;
       next.slides.forEach(s => slideHTML(s, { editable: false, animate: false }));
       packBroken = false; setStatus('');
+      deckGen++; pruneUserImgCache();
       cur = 0; save(); go(0, true);
     } catch (err) {
       deck = prev; cur = prevCur;
+      pruneUserImgCache();
       alert('불러오지 못했어요. 올바른 덱 파일이 아니에요. (' + err.message + ')\n지금 편집 중인 덱은 그대로 두었어요.');
     }
   });
   $('btnReset').addEventListener('click', () => {
     if (!confirm(PACK ? '모든 편집 내용을 지우고 이 폴더의 원래 덱으로 되돌릴까요?' : '모든 편집 내용을 지우고 처음 상태로 되돌릴까요?')) return;
-    deck = initialDeck(); cur = 0; save(); go(0, true);
+    deck = initialDeck(); cur = 0; deckGen++; pruneUserImgCache(); save(); go(0, true);
   });
 }
 
