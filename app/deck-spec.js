@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
@@ -411,6 +411,13 @@ function allowedSrc() {
 const MEDIA_NAME = /^media\/[^/\\:?#%<>"'`.\s\x00-\x1f\x7f][^/\\:?#%<>"'`\x00-\x1f\x7f]*$/;
 const MEDIA_EXT = /\.(png|jpe?g|webp|gif)$/i;
 const isMediaSrc = src => typeof src === 'string' && MEDIA_NAME.test(src) && MEDIA_EXT.test(src) && !/\s\.[^.]+$/.test(src);
+// 내 그림: 앱에서 넣은 그림. 덱의 images에 { id: data 주소 }로 넣고, 그림 칸과 스티커에서는 'user:<id>'로 가리킨다.
+// 앱이 줄여서 다시 그린 PNG·JPEG·WEBP의 base64만 받는다 (SVG나 외부 주소는 막는다).
+const USER_IMG_ID = /^u[0-9a-z]{1,23}$/;
+const USER_IMG_DATA = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const MAX_USER_IMAGES = 60, MAX_USER_IMG_CHARS = 3000000;
+const isUserImgData = v => typeof v === 'string' && v.length <= MAX_USER_IMG_CHARS && USER_IMG_DATA.test(v);
+const userImgId = src => typeof src === 'string' && src.startsWith('user:') && USER_IMG_ID.test(src.slice(5)) ? src.slice(5) : null;
 
 // 허용한 필드만 새 객체로 복사한다. 잘못된 구조는 예외를 던져 호출한 쪽이 기존 덱을 지키게 한다.
 // 내용은 잘라 내지 않는다: 앱에서 만든 덱은 그대로 다시 열 수 있어야 한다.
@@ -420,7 +427,14 @@ function sanitize(d) {
   }
   if (d.slides.length > MAX_SLIDES) throw new Error(`슬라이드가 ${MAX_SLIDES}장을 넘습니다.`);
   const known = allowedSrc();
-  const ok = { has: src => known.has(src) || isMediaSrc(src) };
+  const images = {};
+  if (d.images && typeof d.images === 'object' && !Array.isArray(d.images)) {
+    const ids = Object.keys(d.images).filter(id => USER_IMG_ID.test(id) && isUserImgData(d.images[id]));
+    if (ids.length > MAX_USER_IMAGES) throw new Error(`내 그림이 ${MAX_USER_IMAGES}개를 넘습니다.`);
+    for (const id of ids) images[id] = d.images[id];
+  }
+  const hasUserImg = src => { const id = userImgId(src); return id !== null && Object.hasOwn(images, id); };
+  const ok = { has: src => known.has(src) || isMediaSrc(src) || hasUserImg(src) };
   const num = (v, min, max, dflt) => (Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : dflt);
   const int = (v, min, max, dflt) => Math.round(num(v, min, max, dflt));
 
@@ -492,13 +506,14 @@ function sanitize(d) {
       }
       return out;
     }),
+    ...(Object.keys(images).length ? { images } : {}),
   };
 }
 
 // Node에서 읽을 수 있게 내보낸다 (브라우저에서는 위 선언이 그대로 전역으로 쓰인다)
 globalThis.DeckSpec = {
   APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, textColor, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
-  TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc,
+  TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc, isUserImgData, userImgId, MAX_USER_IMAGES,
   OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
   parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
 };

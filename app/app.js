@@ -379,7 +379,7 @@ function slideRenderer(slide, { editable, animate }) {
           + ` style="grid-template-columns:repeat(${cols},minmax(0,1fr));--d:${nextD()}s">${cells}</div>`;
       }
       case 'slot': {
-        const img = slide.img ? `<img class="${fx.pop ? 'pop' : ''}" src="${esc(slide.img)}" alt="" style="--d:0.3s">` : (editable ? '그림 고르기 (두 번 누르기)' : '');
+        const img = slide.img ? `<img class="${fx.pop ? 'pop' : ''}" src="${esc(srcURL(slide.img))}" alt="" style="--d:0.3s">` : (editable ? '그림 고르기 (두 번 누르기)' : '');
         return `<div class="slot${slide.img ? '' : ' empty'}" data-slot="1">${img}</div>`;
       }
     }
@@ -397,7 +397,7 @@ function slideHTML(slide, opts) {
   const stickers = (slide.stickers || []).map((s, i) => {
     const anim = [fx.pop ? 'pop' : '', fx.float && s.float !== false ? 'float' : ''].join(' ').trim();
     return `<div class="sticker ${anim}" data-i="${i}" style="left:${s.x}px;top:${s.y}px;width:${s.w}px;--d:${0.6 + i * 0.12}s">`
-      + `<div class="rot" style="transform:rotate(${s.rot || 0}deg)"><img class="${s.flip ? 'flip' : ''}" src="${esc(s.src)}" alt="">`
+      + `<div class="rot" style="transform:rotate(${s.rot || 0}deg)"><img class="${s.flip ? 'flip' : ''}" src="${esc(srcURL(s.src))}" alt="">`
       + `<i class="h nw"></i><i class="h ne"></i><i class="h sw"></i><i class="h se"></i><i class="h turn" title="돌리기 (Shift: 15도씩)"></i></div></div>`;
   });
   return parts.join('') + stickers.join('');
@@ -585,6 +585,16 @@ host.addEventListener('input', e => {
   const el = e.target;
   if (el.dataset && (el.dataset.field || el.dataset.cell)) commitText(el);
 });
+// 복사한 그림은 [내 그림]으로 넣는다. 글자 칸을 편집 중이고 복사한 글자가 있으면 글자를 붙여 넣는다
+// (워드·한글은 글자를 복사해도 그림을 함께 실어 보내기 때문). 글자 붙여넣기보다 먼저 받도록 캡처 단계에서 듣는다.
+document.addEventListener('paste', e => {
+  if (mode !== 'edit' || !e.clipboardData) return;
+  const files = [...e.clipboardData.files].filter(f => /^image\//.test(f.type));
+  if (!files.length || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (e.target.isContentEditable && e.clipboardData.getData('text/plain').trim()) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  addUserImages(files, slotPick && !$('stickerPanel').hidden);
+}, true);
 // 붙여넣기는 글자만 받는다 (다른 곳의 서식, 그림이 섞이지 않게)
 host.addEventListener('paste', e => {
   if (!e.target.isContentEditable) return;
@@ -1185,6 +1195,172 @@ function slotGroup(slide) {
     ctxButton('그림 빼기', '그림 칸 비우기', () => { delete slide.img; save(); redraw(true); }));
 }
 
+/* ===== 내 그림 (앱에서 넣은 그림) ===== */
+// 그림은 긴 쪽 1600px로 줄여 덱 안(deck.images)에 넣는다. 투명한 곳이 있으면 PNG, 없으면 JPEG.
+// 그래서 [저장]한 JSON과 [폴더에 저장]한 덱에 그림이 함께 들어간다.
+// 화면에는 data 주소 대신 Blob 주소를 써서 썸네일·인쇄마다 긴 글자열을 다시 넣지 않는다.
+const USER_IMG_SIDE = 1600;
+const userImgCache = new Map();   // id → { data, url }
+function userImgURL(id) {
+  const data = deck.images && deck.images[id];
+  if (!data) return '';
+  let c = userImgCache.get(id);
+  if (!c || c.data !== data) {
+    if (c) URL.revokeObjectURL(c.url);
+    const comma = data.indexOf(',');
+    const bin = atob(data.slice(comma + 1)), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    c = { data, url: URL.createObjectURL(new Blob([bytes], { type: data.slice(5, data.indexOf(';')) })) };
+    userImgCache.set(id, c);
+  }
+  return c.url;
+}
+function srcURL(src) {
+  const id = userImgId(src);
+  return id ? userImgURL(id) : src;
+}
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('그림을 읽지 못했어요.'));
+    img.src = url;
+  });
+}
+function hasAlpha(g, w, h) {
+  const a = g.getImageData(0, 0, w, h).data;
+  for (let i = 3; i < a.length; i += 4) if (a[i] < 255) return true;
+  return false;
+}
+// 파일을 덱에 넣을 그림으로 바꾼다. 다시 그려서 저장하므로 원래 파일의 숨은 내용(위치 정보 등)은 빠진다.
+async function fileToUserImage(file) {
+  if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new Error('PNG·JPG·WEBP·GIF 그림만 넣을 수 있어요.');
+  const url = URL.createObjectURL(file);
+  let img;
+  try { img = await loadImage(url); } finally { URL.revokeObjectURL(url); }
+  // 제한(약 2MB)을 넘으면 더 작게 줄여 다시 시도한다
+  for (let side = USER_IMG_SIDE; ; side = Math.round(side * 0.75)) {
+    const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const g = cv.getContext('2d');
+    g.drawImage(img, 0, 0, w, h);
+    const data = hasAlpha(g, w, h) ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', 0.85);
+    if (isUserImgData(data)) return { data, w, h };
+    if (side <= 400) throw new Error('그림이 너무 커서 넣지 못했어요.');
+  }
+}
+// 그림 파일 여러 개를 차례로 넣는다. forSlot이면 첫 그림은 이 장의 그림 칸에, 나머지는 스티커로.
+async function addUserImages(files, forSlot) {
+  for (const f of files) {
+    let r;
+    try { r = await fileToUserImage(f); } catch (e) { alert(e.message); continue; }
+    if (!placeUserImage(r, forSlot)) break;
+    forSlot = false;
+  }
+}
+function userSticker(src, w, h) {
+  const aspect = w / h || 1;
+  const sw = aspect >= 1 ? 800 : Math.max(240, Math.round(600 * aspect));
+  const sh = Math.round(sw / aspect);
+  return { src, w: sw, x: Math.round(W / 2 - sw / 2), y: Math.round(Math.max(-sw / 2, H / 2 - sh / 2)), rot: 0, flip: false, float: false };
+}
+// 저장 공간이 모자라 저장하지 못하면 넣은 것을 되돌린다 (그 뒤의 자동 저장이 모두 실패하지 않게)
+function placeUserImage({ data, w, h }, forSlot) {
+  deck.images ||= {};
+  let id = Object.keys(deck.images).find(k => deck.images[k] === data);
+  const isNew = !id;
+  if (isNew) {
+    if (Object.keys(deck.images).length >= MAX_USER_IMAGES) { alert(`내 그림은 ${MAX_USER_IMAGES}개까지 넣을 수 있어요.`); return false; }
+    do id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); while (deck.images[id]);
+    deck.images[id] = data;
+  }
+  const slide = deck.slides[cur], src = 'user:' + id;
+  const before = { img: slide.img, n: slide.stickers.length };
+  if (forSlot) slide.img = src;
+  else {
+    if (slide.stickers.length >= MAX_STICKERS) { alert(`한 장에는 스티커를 ${MAX_STICKERS}개까지 넣을 수 있어요.`); if (isNew) delete deck.images[id]; return false; }
+    slide.stickers.push(userSticker(src, w, h));
+    sel = slide.stickers.length - 1;
+  }
+  const wasFailing = saveFailed;
+  dirty = true; flushSave();
+  if (saveFailed && !wasFailing) {
+    if (isNew) delete deck.images[id];
+    if (!Object.keys(deck.images).length) delete deck.images;
+    if (before.img === undefined) delete slide.img; else slide.img = before.img;
+    slide.stickers.length = before.n;
+    sel = -1;
+    dirty = true; flushSave();
+    alert('브라우저 저장 공간이 가득 차서 그림을 넣지 못했어요. 더 작은 그림을 쓰거나 쓰지 않는 [내 그림]을 지워 주세요.');
+    redraw(true);
+    return false;
+  }
+  if (forSlot) $('stickerPanel').hidden = true;
+  redraw(true);
+  if (!$('stickerPanel').hidden) renderStickerGrid();
+  return true;
+}
+function deleteUserImage(id) {
+  const src = 'user:' + id;
+  const uses = deck.slides.reduce((n, s) => n + (s.img === src ? 1 : 0) + s.stickers.filter(k => k.src === src).length, 0);
+  if (!confirm(uses ? `이 그림을 지울까요? 슬라이드에 넣은 ${uses}곳에서도 빠져요.` : '이 그림을 지울까요?')) return;
+  for (const s of deck.slides) {
+    if (s.img === src) delete s.img;
+    s.stickers = s.stickers.filter(k => k.src !== src);
+  }
+  delete deck.images[id];
+  if (!Object.keys(deck.images).length) delete deck.images;
+  const c = userImgCache.get(id);
+  if (c) { URL.revokeObjectURL(c.url); userImgCache.delete(id); }
+  sel = -1;
+  save(); redraw(); renderStickerGrid();
+}
+// [내 그림] 탭: [그림 추가] 버튼과 덱에 넣은 그림들. 그림을 누르면 넣고, ✕로 지운다.
+function userImageItems() {
+  const add = document.createElement('button');
+  add.type = 'button'; add.className = 'add-img';
+  add.textContent = '＋ 그림 추가';
+  add.title = '내 컴퓨터의 그림 고르기 (복사한 그림은 ⌘V·Ctrl+V로 붙여 넣어도 돼요)';
+  add.addEventListener('click', () => $('fileUserImg').click());
+  const items = Object.keys(deck.images || {}).map((id, i) => {
+    const box = document.createElement('div');
+    box.className = 'user-img';
+    const b = document.createElement('button');
+    b.type = 'button';
+    const img = new Image();
+    img.src = userImgURL(id); img.alt = '';
+    const label = document.createElement('span');
+    label.textContent = `내 그림 ${i + 1}`;
+    b.title = `내 그림 ${i + 1}`;
+    b.append(img, label);
+    b.addEventListener('click', () => {
+      const src = 'user:' + id;
+      if (slotPick) {
+        deck.slides[cur].img = src;
+        $('stickerPanel').hidden = true;
+        save(); redraw();
+        return;
+      }
+      const slide = deck.slides[cur];
+      if (slide.stickers.length >= MAX_STICKERS) { alert(`한 장에는 스티커를 ${MAX_STICKERS}개까지 넣을 수 있어요.`); return; }
+      releaseFocus();
+      slide.stickers.push(userSticker(src, img.naturalWidth, img.naturalHeight));
+      sel = slide.stickers.length - 1;
+      save(); redraw(true);
+    });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'del';
+    del.textContent = '✕'; del.title = '이 그림 지우기';
+    del.setAttribute('aria-label', `내 그림 ${i + 1} 지우기`);
+    del.addEventListener('click', () => deleteUserImage(id));
+    box.append(b, del);
+    return box;
+  });
+  return { nodes: [add, ...items], count: items.length };
+}
+
 /* ===== 떠 있는 패널 ===== */
 let stickerTab = 'basic';
 function openStickerPanel(forSlot) {
@@ -1192,16 +1368,28 @@ function openStickerPanel(forSlot) {
   $('stickerPanelTitle').textContent = slotPick ? '그림 칸에 넣을 그림' : '스티커';
   $('settingsPanel').hidden = true;
   $('aboutPop').hidden = true;
+  $('helpPanel').hidden = true;
   $('stickerPanel').hidden = false;
   renderStickerGrid();
 }
-// [기본] 8개와 [추가](덱을 만들며 새로 생성한 그림)를 탭으로 나눠 보여 준다
+// [기본] 8개와 [추가](덱을 만들며 새로 생성한 그림), [내 그림](앱에서 넣은 그림)을 탭으로 나눠 보여 준다
+const EMPTY_NOTE = {
+  extra: '아직 추가한 그림이 없어요. 덱을 만들며 새로 생성한 그림이 여기에 들어와요.',
+  user: '[그림 추가]로 내 컴퓨터의 그림을 고르거나, 복사한 그림을 ⌘V(Ctrl+V)로 붙여 넣으세요. 넣은 그림은 덱 파일에 함께 저장돼요.',
+};
 function renderStickerGrid() {
   document.querySelectorAll('#stickerTabs button').forEach(b => {
     b.classList.toggle('on', b.dataset.tab === stickerTab);
     b.setAttribute('aria-selected', b.dataset.tab === stickerTab ? 'true' : 'false');
   });
   const grid = $('stickerGrid');
+  $('stickerEmpty').textContent = EMPTY_NOTE[stickerTab] || '';
+  if (stickerTab === 'user') {
+    const { nodes, count } = userImageItems();
+    grid.replaceChildren(...nodes);
+    $('stickerEmpty').hidden = count > 0;
+    return;
+  }
   const list = STICKERS.filter(st => st.group === stickerTab);
   grid.replaceChildren(...list.map(st => {
     const b = document.createElement('button');
@@ -1354,8 +1542,8 @@ document.addEventListener('keydown', e => {
   const typing = editing || /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/.test(e.target.tagName);
   if (e.key === 'Escape') {
     if (typing) { e.target.blur(); return; }
-    if (!$('stickerPanel').hidden || !$('settingsPanel').hidden || !$('aboutPop').hidden) {
-      $('stickerPanel').hidden = $('settingsPanel').hidden = $('aboutPop').hidden = true; return;
+    if (!$('stickerPanel').hidden || !$('settingsPanel').hidden || !$('aboutPop').hidden || !$('helpPanel').hidden) {
+      $('stickerPanel').hidden = $('settingsPanel').hidden = $('aboutPop').hidden = $('helpPanel').hidden = true; return;
     }
     if (sel >= 0 || selO) { selectNone(); return; }
     if (mode === 'present') endPresent();
@@ -1420,10 +1608,28 @@ function buildToolbar() {
   });
   $('btnStickerClose').addEventListener('click', () => { $('stickerPanel').hidden = true; });
   document.querySelectorAll('#stickerTabs button').forEach(b => b.addEventListener('click', () => { stickerTab = b.dataset.tab; renderStickerGrid(); }));
+  $('fileUserImg').addEventListener('change', e => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    addUserImages(files, slotPick);
+  });
   // 그림 칸은 두 번 누르면 그림 고르기 (한 번 누르면 개체 선택·이동)
   host.addEventListener('dblclick', e => {
     if (mode === 'edit' && e.target.closest('[data-slot]')) openStickerPanel(true);
   });
+  // 저장·옮기기 도움말: 지금 연 곳(발표 폴더인지)과 브라우저에 맞는 방법을 맨 위에 알려 준다
+  $('btnHelp').addEventListener('click', () => {
+    const p = $('helpPanel');
+    p.hidden = !p.hidden;
+    if (p.hidden) return;
+    $('stickerPanel').hidden = $('settingsPanel').hidden = $('aboutPop').hidden = true;
+    $('helpNow').textContent = !PACK
+      ? '지금은 발표 폴더가 아닌 곳에서 열었어요. [폴더에 저장]은 발표 폴더에서만 보여요. ②의 [저장]·[불러오기]를 쓰세요.'
+      : window.showDirectoryPicker
+        ? '지금은 발표 폴더에서 열었고, 이 브라우저는 [폴더에 저장]을 쓸 수 있어요. ①을 추천해요.'
+        : '지금은 발표 폴더에서 열었지만, 이 브라우저는 [폴더에 저장]을 쓸 수 없어요. ②를 쓰세요.';
+  });
+  $('btnHelpClose').addEventListener('click', () => { $('helpPanel').hidden = true; });
   // 정보 팝업
   $('aboutVersion').textContent = `Any-Slide v${APP_VERSION}`;
   $('btnAbout').addEventListener('click', e => {
@@ -1442,7 +1648,7 @@ function buildToolbar() {
   $('btnSettings').addEventListener('click', () => {
     const p = $('settingsPanel');
     p.hidden = !p.hidden;
-    if (!p.hidden) { $('stickerPanel').hidden = true; syncSettings(); }
+    if (!p.hidden) { $('stickerPanel').hidden = $('helpPanel').hidden = true; syncSettings(); }
   });
   $('btnSettingsClose').addEventListener('click', () => { $('settingsPanel').hidden = true; });
   const setAndShow = (fn, still) => { fn(); save(); syncSettings(); still ? redraw() : renderStage(); };

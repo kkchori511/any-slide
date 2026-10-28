@@ -31,6 +31,9 @@
       <button id="btnSaveFolder" title="고친 덱을 이 발표 폴더 안의 파일에 저장 (다른 컴퓨터로 옮기기 전에)" hidden>폴더에 저장</button>
       <button id="btnReset" class="danger" title="처음 상태로">초기화</button>
     </div>
+    <div class="group">
+      <button id="btnHelp" type="button" title="저장·불러오기·다른 컴퓨터로 옮기는 방법">? 도움말</button>
+    </div>
     <button id="btnAbout" type="button" title="앱 정보">Any-Slide</button>
   </div>
   <!-- 글자를 고르면 글자 도구, 스티커를 고르면 스티커 도구, 아니면 이 장의 옵션 -->
@@ -49,6 +52,7 @@
   <div id="stickerTabs" class="tabs" role="tablist">
     <button type="button" data-tab="basic" role="tab">기본</button>
     <button type="button" data-tab="extra" role="tab">추가</button>
+    <button type="button" data-tab="user" role="tab">내 그림</button>
   </div>
   <div id="stickerGrid"></div>
   <p id="stickerEmpty" class="empty-note" hidden>아직 추가한 그림이 없어요. 덱을 만들며 새로 생성한 그림이 여기에 들어와요.</p>
@@ -73,10 +77,35 @@
   <p>제작 : 김한량 디지털 공방</p>
 </div>
 
+<div id="helpPanel" class="float-panel" hidden role="dialog" aria-label="저장·옮기기 도움말">
+  <div class="panel-title">저장·옮기기 도움말 <button id="btnHelpClose" aria-label="닫기">✕</button></div>
+  <p id="helpNow" class="help-now"></p>
+  <h4>고친 내용은 자동 저장돼요</h4>
+  <p>이 컴퓨터의 브라우저에 저장돼요. 브라우저의 사이트 데이터를 지우면 사라질 수 있으니 중요한 덱은 파일로도 저장해 두세요.</p>
+  <h4>① 다른 컴퓨터로: [폴더에 저장] (크롬·엣지, 추천)</h4>
+  <ol>
+    <li>[폴더에 저장]을 누르고 이 발표 폴더를 골라요 (처음 한 번만)</li>
+    <li>폴더째 USB·메일·메신저로 옮겨요</li>
+    <li>옮긴 컴퓨터에서 폴더 안 <b>Any-Slide.html</b>을 열면 더 최근에 고친 쪽이 열려요</li>
+  </ol>
+  <h4>② [저장] → [불러오기] (모든 브라우저)</h4>
+  <ol>
+    <li>[저장]을 누르면 덱 JSON 파일이 「다운로드」 폴더에 생겨요</li>
+    <li>그 JSON 파일도 함께 옮겨요</li>
+    <li>발표 폴더의 <b>Any-Slide.html</b>을 열고 [불러오기]로 JSON을 골라요</li>
+  </ol>
+  <h4>그림은?</h4>
+  <ul>
+    <li>[내 그림]으로 넣은 그림은 덱 파일(JSON)에 함께 들어가요.</li>
+    <li>노션 그림처럼 덱을 만들 때 넣은 그림(media 폴더)은 JSON에 들어 있지 않아요. 발표 폴더에서 열어야 보여요.</li>
+  </ul>
+</div>
+
 <div id="hud" aria-live="polite"></div>
 <!-- 인쇄할 때 모든 장을 펼쳐 두는 곳 (인쇄할 때만 보인다) -->
 <div id="printHost" aria-hidden="true"></div>
 <input id="fileImport" type="file" accept="application/json,.json" hidden>
+<input id="fileUserImg" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
 <script src="deck-spec.js"></script>
 <script src="app.js"></script>
 </body>

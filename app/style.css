@@ -255,6 +255,15 @@ input[type=range] { width: 120px; }
 #aboutPop strong { font-size: 18px; }
 #aboutPop p { margin: 8px 0 0; font-size: 14px; color: #6e6657; }
 #settingsPanel { width: 340px; }
+#helpPanel { width: 420px; font-size: 14px; line-height: 1.6; }
+#helpPanel h4 { margin: 14px 0 4px; font-size: 14px; }
+#helpPanel p, #helpPanel ol, #helpPanel ul { margin: 0; color: #4a443d; }
+#helpPanel ol, #helpPanel ul { padding-left: 20px; }
+#helpPanel .help-now { background: #e4ecf8; border-radius: 8px; padding: 8px 10px; color: var(--ink); }
+#stickerGrid .add-img { grid-column: 1 / -1; padding: 10px; font-weight: 700; flex-direction: row; justify-content: center; }
+#stickerGrid .user-img { position: relative; display: flex; min-width: 0; }
+#stickerGrid .user-img > button:first-child { flex: 1; }
+#stickerGrid .user-img .del { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 12px; line-height: 1; background: #fff; }
 .panel-title { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 10px; }
 .panel-title button { border: 0; background: none; font-size: 16px; padding: 2px 6px; }
 #stickerGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
