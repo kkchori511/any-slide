@@ -319,10 +319,11 @@ function objBoxStyle(o) {
   return `left:${o.x}px;top:${o.y}px;width:${o.w}px;` + (o.k === 'img' ? '' : `height:${o.h}px;`) + (o.rot ? `transform:rotate(${o.rot}deg);` : '');
 }
 
-// 표의 열 너비·행 높이: colW·rowH 비율이 있으면 그 비율로, 없으면 열은 같은 너비, 행은 글 양대로
+// 표의 열 너비·행 높이: 열은 colW 비율(없으면 같은 너비), 행은 rowH 최소 높이(0이나 없으면 글 양대로)
 function tableGrid(slide) {
   const { cols, rows } = tableTracks(slide), n = parseTable(slide.table ?? '')[0].length;
-  return { cols: cols ? cols.map(v => `minmax(0,${v}fr)`).join(' ') : `repeat(${n},minmax(0,1fr))`, rows: rows ? rows.map(v => `${v}fr`).join(' ') : '' };
+  return { cols: cols ? cols.map(v => `minmax(0,${v}fr)`).join(' ') : `repeat(${n},minmax(0,1fr))`,
+    rows: rows ? rows.map(v => (v ? `minmax(${v}px,auto)` : 'auto')).join(' ') : '' };
 }
 function tableGridStyle(slide) {
   const g = tableGrid(slide);
@@ -1051,20 +1052,22 @@ function tableOp(kind, at) {
   if (kind === 'addCol') { rows.forEach(row => row.splice(c + 1, 0, '')); tr.cols?.splice(c + 1, 0, tr.cols[c]); }
   if (kind === 'delCol' && cols > 1) { rows.forEach(row => row.splice(c, 1)); tr.cols?.splice(c, 1); }
   if (kind === 'resetSize') { tr.cols = null; tr.rows = null; }
-  setTracks(slide, tr);
+  setTracks(slide, tr, kind === 'resetSize' || /Col/.test(kind) ? 'colW' : null);
+  setTracks(slide, tr, kind === 'resetSize' || /Row/.test(kind) ? 'rowH' : null);
   slide.table = tableToString(rows);
   save(); redraw();
 }
 
-// 표의 비율을 덱에 적는다 (소수 둘째 자리, 없으면 지운다)
-function setTracks(slide, { cols, rows }) {
-  const put = (k, a) => { if (a && a.length) slide[k] = a.map(v => Math.round(clamp(v, TRACK_MIN, TRACK_MAX) * 100) / 100); else delete slide[k]; };
-  put('colW', cols); put('rowH', rows);
+// 표의 열 너비(소수 둘째 자리)나 행 최소 높이(정수 px) 하나를 덱에 적는다. 없으면 지운다. 바꾸지 않은 쪽은 건드리지 않는다
+function setTracks(slide, { cols, rows }, key) {
+  if (key === 'colW') { if (cols) slide.colW = cols.map(v => Math.round(clamp(v, COL_MIN, COL_MAX) * 100) / 100); else delete slide.colW; }
+  if (key === 'rowH') { if (rows) slide.rowH = rows.map(v => Math.round(clamp(v, 0, H))); else delete slide.rowH; }
 }
 
 /* ===== 표의 열 너비·행 높이 끌기 =====
    편집 모드에서 칸 사이 경계선 가까이(화면 6px)에 가면 손 모양이 바뀌고, 끌면 크기가 바뀐다.
-   열은 경계 양쪽 열의 너비를 주고받고(표 폭은 그대로), 행은 그 행만 높이가 바뀐다(글이 들어갈 높이보다 작아지지 않는다). */
+   열은 경계 양쪽 열의 너비를 주고받고(표 폭은 그대로), 행은 그 행만 높이가 바뀐다.
+   행 높이는 글이 들어갈 높이보다 작아지지 않고, 표가 칸 높이(data-h)를 넘을 만큼 커지지 않는다. */
 const TABLE_EDGE = 6, TRACK_PX_MIN = 60;
 function tableEdgeAt(e) {
   const cell = e.target.closest && e.target.closest('.table > .t[data-cell]');
@@ -1105,22 +1108,26 @@ function startTableResize(e, hit) {
     need = Math.max(need, ...row.map(c => c.offsetHeight));
     row.forEach(c => { c.style.alignSelf = ''; });
   }
+  // 행이 커질 수 있는 한도: 표 전체가 칸 높이를 넘지 않게 (이미 넘었으면 글 높이까지만)
+  const room = Math.max(need, +tbl.dataset.h - (rowPx.reduce((a, b) => a + b, 0) - (rowPx[i] || 0)));
   const p0 = e.clientX, q0 = e.clientY;
   tbl.dataset.rs = kind; tbl.classList.add('resizing');
-  let tr = tableTracks(slide);
+  const tr = tableTracks(slide);
   const move = ev => {
     if (ev.pointerId !== pid) return;
     if (kind === 'col') {
-      const d = clamp((ev.clientX - p0) / scale, TRACK_PX_MIN - colPx[i], colPx[i + 1] - TRACK_PX_MIN);
+      // 두 열이 모두 60px 이상 남게 (이미 좁으면 더 좁아지는 쪽으로는 움직이지 않는다)
+      const d = clamp((ev.clientX - p0) / scale, Math.min(0, TRACK_PX_MIN - colPx[i]), Math.max(0, colPx[i + 1] - TRACK_PX_MIN));
       const w = colPx.slice(); w[i] += d; w[i + 1] -= d;
-      const avg = w.reduce((a, b) => a + b, 0) / w.length;
-      tr = { ...tr, cols: w.map(v => v / avg) };
+      const lo = Math.min(...w);
+      tr.cols = w.map(v => v / lo);   // 가장 좁은 열이 1
+      setTracks(slide, tr, 'colW');
     } else {
-      const h = rowPx.slice(); h[i] = Math.max(need, rowPx[i] + (ev.clientY - q0) / scale);
-      const lo = Math.min(...h);
-      tr = { ...tr, rows: h.map(v => v / lo) };
+      const rows = tr.rows || rowPx.map(() => 0);
+      rows[i] = clamp(rowPx[i] + (ev.clientY - q0) / scale, need, room);
+      tr.rows = rows;
+      setTracks(slide, tr, 'rowH');
     }
-    setTracks(slide, tr);
     const g = tableGrid(slide);
     tbl.style.gridTemplateColumns = g.cols; tbl.style.gridTemplateRows = g.rows;
   };

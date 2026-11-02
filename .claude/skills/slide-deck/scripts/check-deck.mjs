@@ -62,10 +62,12 @@ raw.slides.forEach((s, i) => {
     if (b.table) {
       const rows = parseTable(slide.table ?? ''), n = rows[0].length;
       // 열 너비는 colW 비율대로 (없으면 같은 너비)
-      const ratio = tableTracks(slide).cols || Array(n).fill(1), sum = ratio.reduce((a, v) => a + v, 0);
+      const tr = tableTracks(slide), ratio = tr.cols || Array(n).fill(1), sum = ratio.reduce((a, v) => a + v, 0);
       const cw = ratio.map(v => b.w * v / sum - 50);
       const st = slide.styles?.table || {}, size = 36 * (st.scale || 1), lh = st.lh || 1.4;
-      need = k => rows.reduce((sum, r) => sum + Math.max(...r.map((c, ci) => linesOf(stripMarkup(c), size * k, Math.max(20, cw[ci])))) * size * k * lh + size * k * 0.9 + 2, 0);
+      // 행 높이는 글 높이와 rowH(최소 높이) 중 큰 값
+      need = k => rows.reduce((sum, r, ri) => sum + Math.max(tr.rows?.[ri] || 0,
+        Math.max(...r.map((c, ci) => linesOf(stripMarkup(c), size * k, Math.max(20, cw[ci])))) * size * k * lh + size * k * 0.9 + 2), 0);
       // 열마다 가장 긴 줄의 폭이 2배 넘게 차이 나는데 colW가 없으면 알린다 (짧은 열은 좁게, 긴 열은 넓게)
       if (n > 1 && !slide.colW) {
         const longest = Array.from({ length: n }, (_, ci) => Math.max(1, ...rows.flatMap(r => stripMarkup(r[ci]).split('\n').map(l => lineWidth(l, 1)))));
@@ -85,7 +87,9 @@ raw.slides.forEach((s, i) => {
         return sum + linesOf(text, sz, b.w) * sz * (slide.styles?.[t.field]?.lh || lh);
       }, b.gap || 0);
     }
-    if (need(FIT_MIN) > b.h) warns.push(`${no}: "${names}" 글이 너무 길어 최소 크기로 줄여도 넘침 → 나누거나 줄이기`);
+    const rowSum = b.table ? (tableTracks(slide).rows || []).reduce((a, v) => a + v, 0) : 0;
+    if (rowSum > b.h) warns.push(`${no}: 표의 rowH 합(${rowSum}px)이 칸 높이(${b.h}px)를 넘음 → rowH 줄이기`);
+    else if (need(FIT_MIN) > b.h) warns.push(`${no}: "${names}" 글이 너무 길어 최소 크기로 줄여도 넘침 → 나누거나 줄이기`);
     else if (need(1) > b.h) warns.push(`${no}: "${names}" 글이 길어 글자가 자동으로 작아짐`);
     // 본문 형태에서 키워도 칸의 40%를 못 채우면 비어 보인다
     if (['body', 'image'].includes(s.type) && b.id === 'main' && b.grow && need(1) > 0 && need(b.grow) < b.h * 0.4) {

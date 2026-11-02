@@ -368,15 +368,15 @@ function parseTable(s) {
   const cols = Math.max(1, ...rows.map(r => r.length));
   return rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ''));
 }
-// 표의 열 너비·행 높이 비율: 덱의 colW·rowH(칸마다 숫자, 없거나 모자라면 1). 없으면 null(열은 같은 너비, 행은 글 양대로).
-// 행은 가장 작은 값이 1이 되게 맞춘다 (높이가 정해지지 않은 격자에서 1보다 작은 fr은 비율대로 나뉘지 않는다).
-const TRACK_MIN = 0.2, TRACK_MAX = 20, MAX_TRACKS = 50;
+// 표의 열 너비와 행 높이.
+// colW: 열마다 너비 비율(없거나 모자라면 1). 없으면 같은 너비.
+// rowH: 행마다 최소 높이(슬라이드 px, 0은 글 양대로). 글이 더 많으면 그만큼 커진다. 없으면 모두 글 양대로.
+// 칸 수보다 긴 배열은 버리고, 없으면 null.
+const COL_MIN = 0.2, COL_MAX = 100;
 function tableTracks(slide) {
   const rows = parseTable(slide.table ?? '');
-  const fill = (a, n) => (Array.isArray(a) ? Array.from({ length: n }, (_, i) => (Number.isFinite(a[i]) && a[i] > 0 ? a[i] : 1)) : null);
-  const cols = fill(slide.colW, rows[0].length), rh = fill(slide.rowH, rows.length);
-  const lo = rh && Math.min(...rh);
-  return { cols, rows: rh && rh.map(v => Math.round(v / lo * 1000) / 1000) };
+  const fill = (a, n, d) => (Array.isArray(a) && a.length ? Array.from({ length: n }, (_, i) => (Number.isFinite(a[i]) && a[i] >= 0 ? a[i] : d)) : null);
+  return { cols: fill(slide.colW, rows[0].length, 1), rows: fill(slide.rowH, rows.length, 0) };
 }
 // 칸 안의 |는 구분자가 아니도록 \| 로 감싼다. 앞의 \ 개수가 홀수면 이미 감싼 것이고, 짝수(\\ 는 \ 글자)면 감싸야 한다.
 function tableToString(rows) {
@@ -505,14 +505,11 @@ function sanitize(d) {
         }
         if (Object.keys(layout).length) out.layout = layout;
       }
-      // 표의 열 너비·행 높이 비율 (표가 있는 형태만)
+      // 표의 열 너비 비율·행 최소 높이 (표가 있는 형태만). 표의 실제 칸·줄 수까지만 남긴다
       if (TYPES[s.type].objects.some(o => o.k === 'table')) {
-        for (const k of ['colW', 'rowH']) {
-          const a = s[k];
-          if (!Array.isArray(a) || !a.length) continue;
-          if (a.length > MAX_TRACKS) throw new Error(`표의 ${k}가 ${MAX_TRACKS}칸을 넘습니다.`);
-          out[k] = a.map(v => Math.round(num(v, TRACK_MIN, TRACK_MAX, 1) * 100) / 100);
-        }
+        const t = parseTable(out.table ?? '');
+        if (Array.isArray(s.colW) && s.colW.length) out.colW = s.colW.slice(0, t[0].length).map(v => Math.round(num(v, COL_MIN, COL_MAX, 1) * 100) / 100);
+        if (Array.isArray(s.rowH) && s.rowH.length) out.rowH = s.rowH.slice(0, t.length).map(v => int(v, 0, H, 0));
       }
       const list = Array.isArray(s.stickers) ? s.stickers : [];
       if (list.length > MAX_STICKERS) throw new Error(`한 장의 스티커가 ${MAX_STICKERS}개를 넘습니다.`);
@@ -536,5 +533,5 @@ globalThis.DeckSpec = {
   APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, textColor, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
   TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc, isUserImgData, userImgId, MAX_USER_IMAGES,
   OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
-  parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString, tableTracks, TRACK_MIN, TRACK_MAX,
+  parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString, tableTracks, COL_MIN, COL_MAX,
 };
