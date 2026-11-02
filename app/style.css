@@ -302,3 +302,7 @@ body.present:not(.idle) #hud { opacity: 1; }
   /* 흐린 그림자는 PDF에서 회색 상자로 찍힐 때가 있어 옅은 테두리로 바꾼다 */
   .print-page .slot img[src^="media/"] { box-shadow: none; border: 2px solid rgba(40, 50, 70, .14); }
 }
+/* 표의 열 너비·행 높이 끌기: 경계선 가까이에서 손 모양 */
+.edit .table[data-rs="col"] > .t { cursor: col-resize; }
+.edit .table[data-rs="row"] > .t { cursor: row-resize; }
+.edit .table.resizing > .t { user-select: none; }

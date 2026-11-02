@@ -14,7 +14,7 @@ if (!file) { console.error('사용법: node check-deck.mjs <덱.json>'); process
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(root, 'app/deck-spec.js'), 'utf8'), ctx);
-const { W, H, TYPES, FIELDS, sanitize, fieldsOf, textBoxes, placedObjects, stripMarkup, parseTable } = ctx.DeckSpec;
+const { W, H, TYPES, FIELDS, sanitize, fieldsOf, textBoxes, placedObjects, stripMarkup, parseTable, tableTracks } = ctx.DeckSpec;
 
 // app/style.css 의 글자 크기(--fs)와 줄 간격. CSS를 바꾸면 여기도 맞춘다.
 const STYLE = {
@@ -41,7 +41,7 @@ raw.slides.forEach((s, i) => {
   const slide = deck.slides[i];
   const no = `${i + 1}번(${TYPES[s.type].label})`;
   // 버려지는 값 알림
-  const known = ['type', 'stickers', 'count', 'img', 'transition', 'styles', 'layout', ...FIELDS];
+  const known = ['type', 'stickers', 'count', 'img', 'transition', 'styles', 'layout', ...FIELDS, ...(s.type === 'table' ? ['colW', 'rowH'] : [])];
   for (const k of Object.keys(s)) if (!known.includes(k)) warns.push(`${no}: 알 수 없는 칸 "${k}"는 무시됨`);
   const kept = slide.stickers.length, given = Array.isArray(s.stickers) ? s.stickers.length : 0;
   if (kept < given) warns.push(`${no}: 스티커 ${given - kept}개는 허용 목록에 없어 빠짐 (app/deck-spec.js STICKERS 확인)`);
@@ -60,10 +60,20 @@ raw.slides.forEach((s, i) => {
     const names = b.texts.map(t => t.field).join('+');
     let need;
     if (b.table) {
-      const rows = parseTable(slide.table ?? '');
-      const cw = b.w / rows[0].length - 50;
+      const rows = parseTable(slide.table ?? ''), n = rows[0].length;
+      // 열 너비는 colW 비율대로 (없으면 같은 너비)
+      const ratio = tableTracks(slide).cols || Array(n).fill(1), sum = ratio.reduce((a, v) => a + v, 0);
+      const cw = ratio.map(v => b.w * v / sum - 50);
       const st = slide.styles?.table || {}, size = 36 * (st.scale || 1), lh = st.lh || 1.4;
-      need = k => rows.reduce((sum, r) => sum + Math.max(...r.map(c => linesOf(stripMarkup(c), size * k, cw))) * size * k * lh + size * k * 0.9 + 2, 0);
+      need = k => rows.reduce((sum, r) => sum + Math.max(...r.map((c, ci) => linesOf(stripMarkup(c), size * k, Math.max(20, cw[ci])))) * size * k * lh + size * k * 0.9 + 2, 0);
+      // 열마다 가장 긴 줄의 폭이 2배 넘게 차이 나는데 colW가 없으면 알린다 (짧은 열은 좁게, 긴 열은 넓게)
+      if (n > 1 && !slide.colW) {
+        const longest = Array.from({ length: n }, (_, ci) => Math.max(1, ...rows.flatMap(r => stripMarkup(r[ci]).split('\n').map(l => lineWidth(l, 1)))));
+        if (Math.max(...longest) >= 2 * Math.min(...longest)) {
+          const hint = longest.map(v => Math.min(4, Math.round(v / Math.min(...longest) * 2) / 2));   // 너무 벌어지지 않게 4배까지
+          warns.push(`${no}: 표 열의 글 길이가 크게 달라 열 너비를 정하면 좋음 → "colW": [${hint.join(', ')}] 정도에서 조정`);
+        }
+      }
     } else {
       need = k => b.texts.reduce((sum, t) => {
         const [size, lh] = STYLE[t.cls.split(' ')[0]];

@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
@@ -368,6 +368,16 @@ function parseTable(s) {
   const cols = Math.max(1, ...rows.map(r => r.length));
   return rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ''));
 }
+// 표의 열 너비·행 높이 비율: 덱의 colW·rowH(칸마다 숫자, 없거나 모자라면 1). 없으면 null(열은 같은 너비, 행은 글 양대로).
+// 행은 가장 작은 값이 1이 되게 맞춘다 (높이가 정해지지 않은 격자에서 1보다 작은 fr은 비율대로 나뉘지 않는다).
+const TRACK_MIN = 0.2, TRACK_MAX = 20, MAX_TRACKS = 50;
+function tableTracks(slide) {
+  const rows = parseTable(slide.table ?? '');
+  const fill = (a, n) => (Array.isArray(a) ? Array.from({ length: n }, (_, i) => (Number.isFinite(a[i]) && a[i] > 0 ? a[i] : 1)) : null);
+  const cols = fill(slide.colW, rows[0].length), rh = fill(slide.rowH, rows.length);
+  const lo = rh && Math.min(...rh);
+  return { cols, rows: rh && rh.map(v => Math.round(v / lo * 1000) / 1000) };
+}
 // 칸 안의 |는 구분자가 아니도록 \| 로 감싼다. 앞의 \ 개수가 홀수면 이미 감싼 것이고, 짝수(\\ 는 \ 글자)면 감싸야 한다.
 function tableToString(rows) {
   const escCell = c => c.replace(/(\\*)\|/g, (m, bs) => (bs.length % 2 ? m : bs + '\\|'));
@@ -495,6 +505,15 @@ function sanitize(d) {
         }
         if (Object.keys(layout).length) out.layout = layout;
       }
+      // 표의 열 너비·행 높이 비율 (표가 있는 형태만)
+      if (TYPES[s.type].objects.some(o => o.k === 'table')) {
+        for (const k of ['colW', 'rowH']) {
+          const a = s[k];
+          if (!Array.isArray(a) || !a.length) continue;
+          if (a.length > MAX_TRACKS) throw new Error(`표의 ${k}가 ${MAX_TRACKS}칸을 넘습니다.`);
+          out[k] = a.map(v => Math.round(num(v, TRACK_MIN, TRACK_MAX, 1) * 100) / 100);
+        }
+      }
       const list = Array.isArray(s.stickers) ? s.stickers : [];
       if (list.length > MAX_STICKERS) throw new Error(`한 장의 스티커가 ${MAX_STICKERS}개를 넘습니다.`);
       for (const k of list) {
@@ -517,5 +536,5 @@ globalThis.DeckSpec = {
   APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, textColor, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
   TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc, isUserImgData, userImgId, MAX_USER_IMAGES,
   OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
-  parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString,
+  parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString, tableTracks, TRACK_MIN, TRACK_MAX,
 };

@@ -319,6 +319,16 @@ function objBoxStyle(o) {
   return `left:${o.x}px;top:${o.y}px;width:${o.w}px;` + (o.k === 'img' ? '' : `height:${o.h}px;`) + (o.rot ? `transform:rotate(${o.rot}deg);` : '');
 }
 
+// 표의 열 너비·행 높이: colW·rowH 비율이 있으면 그 비율로, 없으면 열은 같은 너비, 행은 글 양대로
+function tableGrid(slide) {
+  const { cols, rows } = tableTracks(slide), n = parseTable(slide.table ?? '')[0].length;
+  return { cols: cols ? cols.map(v => `minmax(0,${v}fr)`).join(' ') : `repeat(${n},minmax(0,1fr))`, rows: rows ? rows.map(v => `${v}fr`).join(' ') : '' };
+}
+function tableGridStyle(slide) {
+  const g = tableGrid(slide);
+  return `grid-template-columns:${g.cols};` + (g.rows ? `grid-template-rows:${g.rows};` : '');
+}
+
 function slideRenderer(slide, { editable, animate }) {
   const fx = fxClasses(animate);
   const styles = slide.styles || {};
@@ -380,7 +390,7 @@ function slideRenderer(slide, { editable, animate }) {
           return `<div class="${cls}" data-cell="${ri},${ci}" data-ph="" data-align0="${a0}"${ri ? ' data-auto="1"' : ''}${ceAttr(false)} style="${boxStyle('table', a0)}">${markupToHTML(v)}</div>`;
         })).join('');
         return `<div class="table ${fx.text ? 'fx-fade' : ''}" data-field="table" data-h="${o.h}"${o.grow ? ` data-grow="${o.grow}"` : ''}`
-          + ` style="grid-template-columns:repeat(${cols},minmax(0,1fr));--d:${nextD()}s">${cells}</div>`;
+          + ` style="${tableGridStyle(slide)}--d:${nextD()}s">${cells}</div>`;
       }
       case 'slot': {
         const img = slide.img ? `<img class="${fx.pop ? 'pop' : ''}" src="${esc(srcURL(slide.img))}" alt="" style="--d:0.3s">` : (editable ? '그림 고르기 (두 번 누르기)' : '');
@@ -794,6 +804,9 @@ host.addEventListener('pointerdown', e => {
   const st = e.target.closest('.sticker'), ob = e.target.closest('.obj');
   if (!st && !ob) { if (sel >= 0 || selO) selectNone(); return; }
   const hd = e.target.closest('.h'), edge = e.target.closest('.eg');
+  // 표 칸 사이 경계선을 누르면 열 너비·행 높이 끌기
+  const hit = !hd && !edge && tableEdgeAt(e);
+  if (hit) { startTableResize(e, hit); return; }
   // 개체 안의 글자를 누르면 글자 편집 (선택 표시는 focusin에서)
   if (ob && !hd && !edge && e.target.closest('.t[contenteditable]')) return;
   e.preventDefault();
@@ -1031,15 +1044,109 @@ function tableOp(kind, at) {
   const rows = parseTable(slide.table ?? '');
   const cols = rows[0].length;
   const r = at ? at[0] : rows.length - 1, c = at ? at[1] : cols - 1;
-  if (kind === 'addRow') rows.splice(r + 1, 0, Array(cols).fill(''));
-  if (kind === 'delRow' && rows.length > 1) rows.splice(r, 1);
-  if (kind === 'addCol') rows.forEach(row => row.splice(c + 1, 0, ''));
-  if (kind === 'delCol' && cols > 1) rows.forEach(row => row.splice(c, 1));
+  // 열 너비·행 높이 비율도 같은 자리에 더하고 뺀다 (새 줄·칸은 이웃과 같은 크기)
+  const tr = tableTracks(slide);
+  if (kind === 'addRow') { rows.splice(r + 1, 0, Array(cols).fill('')); tr.rows?.splice(r + 1, 0, tr.rows[r]); }
+  if (kind === 'delRow' && rows.length > 1) { rows.splice(r, 1); tr.rows?.splice(r, 1); }
+  if (kind === 'addCol') { rows.forEach(row => row.splice(c + 1, 0, '')); tr.cols?.splice(c + 1, 0, tr.cols[c]); }
+  if (kind === 'delCol' && cols > 1) { rows.forEach(row => row.splice(c, 1)); tr.cols?.splice(c, 1); }
+  if (kind === 'resetSize') { tr.cols = null; tr.rows = null; }
+  setTracks(slide, tr);
   slide.table = tableToString(rows);
   save(); redraw();
 }
 
+// 표의 비율을 덱에 적는다 (소수 둘째 자리, 없으면 지운다)
+function setTracks(slide, { cols, rows }) {
+  const put = (k, a) => { if (a && a.length) slide[k] = a.map(v => Math.round(clamp(v, TRACK_MIN, TRACK_MAX) * 100) / 100); else delete slide[k]; };
+  put('colW', cols); put('rowH', rows);
+}
+
+/* ===== 표의 열 너비·행 높이 끌기 =====
+   편집 모드에서 칸 사이 경계선 가까이(화면 6px)에 가면 손 모양이 바뀌고, 끌면 크기가 바뀐다.
+   열은 경계 양쪽 열의 너비를 주고받고(표 폭은 그대로), 행은 그 행만 높이가 바뀐다(글이 들어갈 높이보다 작아지지 않는다). */
+const TABLE_EDGE = 6, TRACK_PX_MIN = 60;
+function tableEdgeAt(e) {
+  const cell = e.target.closest && e.target.closest('.table > .t[data-cell]');
+  if (!cell || mode !== 'edit') return null;
+  const tbl = cell.parentElement, [ri, ci] = cell.dataset.cell.split(',').map(Number);
+  const nCols = parseTable(deck.slides[cur].table ?? '')[0].length, nRows = tbl.children.length / nCols;
+  const r = cell.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  // 돌린 표는 화면 좌표와 칸 축이 어긋나므로 끌지 않는다
+  if (tbl.closest('.obj')?.style.transform) return null;
+  if (e.clientX >= r.right - TABLE_EDGE && ci < nCols - 1) return { tbl, kind: 'col', i: ci };
+  if (e.clientX <= r.left + TABLE_EDGE && ci > 0) return { tbl, kind: 'col', i: ci - 1 };
+  if (e.clientY >= r.bottom - TABLE_EDGE && ri < nRows - 1) return { tbl, kind: 'row', i: ri };
+  if (e.clientY <= r.top + TABLE_EDGE && ri > 0) return { tbl, kind: 'row', i: ri - 1 };
+  return null;
+}
+host.addEventListener('pointermove', e => {
+  if (mode !== 'edit' || e.buttons || activeDrag) return;
+  const hit = tableEdgeAt(e);
+  host.querySelectorAll('.table[data-rs]').forEach(t => { if (!hit || t !== hit.tbl) delete t.dataset.rs; });
+  if (hit) hit.tbl.dataset.rs = hit.kind;
+});
+function startTableResize(e, hit) {
+  finishDrag();
+  e.preventDefault();
+  releaseFocus();
+  const { tbl, kind, i } = hit, pid = e.pointerId, slide = deck.slides[cur];
+  const nCols = parseTable(slide.table ?? '')[0].length, cells = [...tbl.children];
+  // 지금 그려진 크기(슬라이드 좌표)에서 시작한다
+  const colPx = cells.slice(0, nCols).map(c => c.offsetWidth);
+  const rowPx = [];
+  for (let r = 0; r * nCols < cells.length; r++) rowPx.push(cells[r * nCols].offsetHeight);
+  // 행은 글이 들어가는 높이보다 작게 줄이지 않는다
+  let need = TRACK_PX_MIN;
+  if (kind === 'row') {
+    const row = cells.slice(i * nCols, (i + 1) * nCols);
+    row.forEach(c => { c.style.alignSelf = 'start'; });
+    need = Math.max(need, ...row.map(c => c.offsetHeight));
+    row.forEach(c => { c.style.alignSelf = ''; });
+  }
+  const p0 = e.clientX, q0 = e.clientY;
+  tbl.dataset.rs = kind; tbl.classList.add('resizing');
+  let tr = tableTracks(slide);
+  const move = ev => {
+    if (ev.pointerId !== pid) return;
+    if (kind === 'col') {
+      const d = clamp((ev.clientX - p0) / scale, TRACK_PX_MIN - colPx[i], colPx[i + 1] - TRACK_PX_MIN);
+      const w = colPx.slice(); w[i] += d; w[i + 1] -= d;
+      const avg = w.reduce((a, b) => a + b, 0) / w.length;
+      tr = { ...tr, cols: w.map(v => v / avg) };
+    } else {
+      const h = rowPx.slice(); h[i] = Math.max(need, rowPx[i] + (ev.clientY - q0) / scale);
+      const lo = Math.min(...h);
+      tr = { ...tr, rows: h.map(v => v / lo) };
+    }
+    setTracks(slide, tr);
+    const g = tableGrid(slide);
+    tbl.style.gridTemplateColumns = g.cols; tbl.style.gridTemplateRows = g.rows;
+  };
+  const end = ev => {
+    if (ev && ev.pointerId !== undefined && ev.pointerId !== pid) return;
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    window.removeEventListener('blur', end);
+    activeDrag = null;
+    tbl.classList.remove('resizing'); delete tbl.dataset.rs;
+    if (tbl.isConnected) fitBox(tbl);
+    save(); refreshThumb(); renderCtx();
+  };
+  activeDrag = end;
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+  window.addEventListener('blur', end);
+}
+
 /* ===== 상황별 도구 줄 ===== */
+// 열 너비·행 높이를 바꾼 표에만 [크기 같게] (열은 같은 너비, 행은 글 양대로)
+function tableResetButton(slide) {
+  return slide.colW || slide.rowH ? [ctxButton('크기 같게', '열 너비·행 높이를 처음대로 (경계선을 끌어 바꾼 크기 지우기)', () => tableOp('resetSize'))] : [];
+}
 function ctxButton(label, title, fn, cls = '') {
   const b = document.createElement('button');
   b.type = 'button'; b.textContent = label; b.title = title; if (cls) b.className = cls;
@@ -1132,7 +1239,8 @@ function buildCtx(bar) {
         ctxButton('줄 +', '아래에 줄 더하기', () => tableOp('addRow', at)),
         ctxButton('줄 −', '이 줄 빼기', () => tableOp('delRow', at)),
         ctxButton('칸 +', '오른쪽에 칸 더하기', () => tableOp('addCol', at)),
-        ctxButton('칸 −', '이 칸 빼기', () => tableOp('delCol', at))));
+        ctxButton('칸 −', '이 칸 빼기', () => tableOp('delCol', at)),
+        ...tableResetButton(slide)));
     }
     const ob = el.closest('.obj');
     if (ob) bar.append(objGroup('상자', ob.dataset.oid, slide));
@@ -1171,7 +1279,8 @@ function buildCtx(bar) {
   }
   if (slide.type === 'table') {
     bar.append(ctxGroup('표', ctxButton('줄 +', '끝에 줄 더하기', () => tableOp('addRow')), ctxButton('줄 −', '마지막 줄 빼기', () => tableOp('delRow')),
-      ctxButton('칸 +', '끝에 칸 더하기', () => tableOp('addCol')), ctxButton('칸 −', '마지막 칸 빼기', () => tableOp('delCol'))));
+      ctxButton('칸 +', '끝에 칸 더하기', () => tableOp('addCol')), ctxButton('칸 −', '마지막 칸 빼기', () => tableOp('delCol')),
+      ...tableResetButton(slide)));
   }
   if (slide.type === 'image') bar.append(slotGroup(slide));
   if (slide.layout) {
@@ -1612,6 +1721,7 @@ function buildToolbar() {
     const s = deck.slides[cur];
     s.type = typeSel.value;
     delete s.layout;   // 개체 배치는 형태마다 다르므로 형태를 바꾸면 기본 배치로
+    if (s.type !== 'table') { delete s.colW; delete s.rowH; }
     if (s.type === 'table' && !s.table) s.table = '항목 | 내용\n | ';
     save(); redraw();
   });
