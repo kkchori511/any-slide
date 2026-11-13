@@ -175,15 +175,24 @@ function runsToHTML(runs) {
     if (r.m) h = `<mark>${h}</mark>`;
     if (r.u) h = `<u>${h}</u>`;
     if (r.b) h = `<b>${h}</b>`;
+    if (r.a) h = `<span class="ans">${h}</span>`;   // [[빈칸 답]]
     return h;
   }).join('');
 }
 // 글이 줄바꿈으로 끝나면 빈 줄이 보이도록 <br>을 하나 더 둔다 (아래 domItems의 "블록의 마지막 <br>은 자리 채움" 규칙과 짝).
 // 판단은 표기 원문이 아니라 실제 글자로 한다: **A\n** 처럼 서식 안의 끝 줄바꿈도 같다.
-function markupToHTML(s) {
+// lines: 한 줄씩 넘기기의 발표 화면. 줄마다 <span class="ln" data-unit>으로 감싸 하나씩 보일 수 있게 한다 (편집하지 않는 화면에서만 쓴다)
+function markupToHTML(s, lines) {
   const runs = parseMarkup(String(s ?? ''));
   const text = runs.map(r => r.text).join('');
-  return runsToHTML(runs) + (text.endsWith('\n') ? '<br>' : '');
+  const tail = text.endsWith('\n') ? '<br>' : '';
+  if (!lines) return runsToHTML(runs) + tail;
+  const out = [[]];
+  for (const r of runs) r.text.split('\n').forEach((part, i) => {
+    if (i) out.push([]);
+    if (part) out[out.length - 1].push({ ...r, text: part });
+  });
+  return out.map(l => `<span class="ln" data-unit="ln">${runsToHTML(l)}</span>`).join('<br>') + tail;
 }
 function plainToHTML(s) {
   const str = String(s ?? '');
@@ -210,6 +219,7 @@ function domItems(root) {
       if (ch.tagName === 'B' || ch.tagName === 'STRONG') s2 = { ...s2, b: true };
       else if (ch.tagName === 'U') s2 = { ...s2, u: true };
       else if (ch.tagName === 'MARK') s2 = { ...s2, m: true };
+      if (ch.classList.contains('ans')) s2 = { ...s2, a: true };
       const cm = /(?:^|\s)c-([a-z]+)/.exec(ch.className || '');
       if (cm && Object.hasOwn(PALETTE, cm[1])) s2 = { ...s2, c: cm[1] };
       else if (ch.classList.contains('cx') && textColor(ch.dataset.c)) s2 = { ...s2, c: textColor(ch.dataset.c) };
@@ -221,7 +231,7 @@ function domItems(root) {
       } else walk(ch, s2, block);
     }
   };
-  walk(root, { b: false, u: false, m: false, c: null }, root);
+  walk(root, { b: false, u: false, m: false, a: false, c: null }, root);
   // 블록마다 마지막 <br>은 빈 줄을 보이게 하려는 자리 채움이라 글자로 치지 않는다
   const last = new Map();
   items.forEach((it, i) => last.set(it.block, i));
@@ -235,7 +245,7 @@ function itemsToRuns(items) {
   const runs = [];
   for (const it of items) {
     const prev = runs[runs.length - 1];
-    if (prev && prev.b === it.st.b && prev.u === it.st.u && prev.m === it.st.m && prev.c === it.st.c) prev.text += it.text;
+    if (prev && prev.b === it.st.b && prev.u === it.st.u && prev.m === it.st.m && prev.a === it.st.a && prev.c === it.st.c) prev.text += it.text;
     else runs.push({ text: it.text, ...it.st });
   }
   return runs;
@@ -330,8 +340,12 @@ function tableGridStyle(slide) {
   return `grid-template-columns:${g.cols};` + (g.rows ? `grid-template-rows:${g.rows};` : '');
 }
 
-function slideRenderer(slide, { editable, animate }) {
+// 한 줄씩 넘기기에서 줄마다 나오는 칸 (본문·그림 설명·말풍선·비교). 카드·단계는 상자마다, 표는 행마다 나온다.
+const LINE_STEP_TYPES = new Set(['body', 'image', 'explain', 'compare']);
+const LINE_STEP_FIELDS = new Set(['body', 'sub', 'bubble', 'left', 'right']);
+function slideRenderer(slide, { editable, animate, steps }) {
   const fx = fxClasses(animate);
+  const lineStep = f => steps && LINE_STEP_TYPES.has(slide.type) && LINE_STEP_FIELDS.has(f);
   const styles = slide.styles || {};
   const aligns = slideAligns(slide);   // 나란한 상자·표 열의 자동 정렬 (묶음마다 하나로)
   let n = 0;
@@ -350,7 +364,7 @@ function slideRenderer(slide, { editable, animate }) {
     const attrs = (fit ? ` data-h="${fit.h}"` + (fit.grow ? ` data-grow="${fit.grow}"` : '') : '') + (plain ? ' data-plain="1"' : '')
       + (align0 ? ` data-align0="${align0}"` : '') + (t.auto ? ' data-auto="1"' : '');
     return `<div class="t ${t.cls}${pos ? ' abs' : ''} ${fx.text}" data-field="${t.field}" data-ph="${esc(t.ph || '')}"${attrs}${ceAttr(plain)}`
-      + ` style="${pos}--d:${nextD()}s;${boxStyle(t.field, align0)}">${plain ? plainToHTML(v) : markupToHTML(v)}</div>`;
+      + ` style="${pos}--d:${nextD()}s;${boxStyle(t.field, align0)}">${plain ? plainToHTML(v) : markupToHTML(v, lineStep(t.field))}</div>`;
   };
   const rel = r => `left:${r.x}px;top:${r.y}px;width:${r.w}px;`;
 
@@ -388,7 +402,8 @@ function slideRenderer(slide, { editable, animate }) {
         const cells = rows.flatMap((r, ri) => r.map((v, ci) => {
           const cls = ['t', 'cell', ri === 0 ? 'th' : '', ci === cols - 1 ? 'last-col' : '', ri === rows.length - 1 ? 'last-row' : ''].join(' ');
           const a0 = ri === 0 ? 'center' : (aligns.cols[ci] || autoAlign(v));
-          return `<div class="${cls}" data-cell="${ri},${ci}" data-ph="" data-align0="${a0}"${ri ? ' data-auto="1"' : ''}${ceAttr(false)} style="${boxStyle('table', a0)}">${markupToHTML(v)}</div>`;
+          const unit = steps && ri ? ` data-unit="r${ri}"` : '';
+          return `<div class="${cls}" data-cell="${ri},${ci}" data-ph="" data-align0="${a0}"${ri ? ' data-auto="1"' : ''}${unit}${ceAttr(false)} style="${boxStyle('table', a0)}">${markupToHTML(v)}</div>`;
         })).join('');
         return `<div class="table ${fx.text ? 'fx-fade' : ''}" data-field="table" data-h="${o.h}"${o.grow ? ` data-grow="${o.grow}"` : ''}`
           + ` style="${tableGridStyle(slide)}--d:${nextD()}s">${cells}</div>`;
@@ -400,7 +415,12 @@ function slideRenderer(slide, { editable, animate }) {
     }
     return '';
   }
-  const objHTML = o => `<div class="obj k-${o.k}" data-oid="${o.id}" style="${objBoxStyle(o)}">${inner(o)}${editable ? frameHTML(o) : ''}</div>`;
+  // 한 줄씩 넘기기: 카드·단계 상자는 상자마다 나오고, 단계 사이 화살표(a1…)는 다음 단계(s2…)와 함께 나온다
+  const unitOf = o => (!steps ? '' : o.k === 'card' && o.variant !== 'compare' ? o.id : /^a\d+$/.test(o.id) ? `s${+o.id.slice(1) + 1}` : '');
+  const objHTML = o => {
+    const unit = unitOf(o);
+    return `<div class="obj k-${o.k}" data-oid="${o.id}"${unit ? ` data-unit="${unit}"` : ''} style="${objBoxStyle(o)}">${inner(o)}${editable ? frameHTML(o) : ''}</div>`;
+  };
   return { objHTML };
 }
 
@@ -487,7 +507,7 @@ function fit() {
 function renderStage(opts = {}) {
   finishDrag();
   const tr = opts.tr && opts.tr.kind !== 'none' ? opts.tr : null;
-  const el = makeSlide(deck.slides[cur], { editable: mode === 'edit', animate: !opts.still, t0: tr ? tr.dur / 2 : 0 });
+  const el = makeSlide(deck.slides[cur], { editable: mode === 'edit', animate: !opts.still, t0: tr ? tr.dur / 2 : 0, steps: stepMode() });
   host.querySelectorAll(':scope > .slide.tr-out').forEach(x => x.remove());
   const prev = curEl && curEl.parentNode === host ? curEl : null;
   host.appendChild(el);
@@ -508,6 +528,7 @@ function renderStage(opts = {}) {
   }
   fit();
   fitText(el);
+  setupSteps(el, opts.stepAt);
   if (!opts.keepSel) { sel = -1; selO = null; }
   activeText = null;
   markSelection();
@@ -546,18 +567,53 @@ function refreshThumb() {
 function transitionFor(slide, back) {
   return { kind: slide.transition || deck.settings.transition, dur: deck.settings.duration, back };
 }
-function go(i, force) {
+// stepAt: 한 줄씩 넘기기에서 새 장을 몇 단계까지 보인 채로 열지 ('end'면 모두, 앞 장으로 돌아갈 때)
+function go(i, force, stepAt) {
   const next = clamp(i, 0, deck.slides.length - 1);
   // 같은 장으로 이동하면 다시 그리지 않는다. 덱 내용이 바뀐 경우(삭제, 초기화 등)는 force로 부르고 전환 효과는 없다.
   if (next === cur && !force && curEl) return;
   const thumbFocused = document.activeElement && document.activeElement.classList.contains('thumb');
   const tr = !force && curEl ? transitionFor(deck.slides[next], next < cur) : null;
   cur = next;
-  renderStage({ tr }); renderThumbs(); syncToolbar();
+  renderStage({ tr, stepAt }); renderThumbs(); syncToolbar();
   const a = $('thumbs').children[cur];
   if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest' });
   if (a && thumbFocused) a.focus();   // 썸네일 목록을 새로 만들어도 키보드 포커스를 이어 준다
 }
+/* ===== 한 줄씩 넘기기 (수업 자료) =====
+   발표 화면에서만 쓴다. 단계는 문서 순서대로: 줄(data-unit="ln"), 상자·표 행(같은 data-unit 값끼리 한 단계), [[빈칸]] 답(.ans).
+   줄 안의 빈칸은 그 줄이 나온 뒤에 하나씩 나온다. 숨은 것도 자리를 차지해서(visibility) 글자 크기와 위치가 바뀌지 않는다. */
+let steps = [], stepI = 0;
+const stepMode = () => mode === 'present' && deck.settings.step === 'line';
+function setupSteps(el, at) {
+  steps = []; stepI = 0;
+  if (!stepMode()) return;
+  const byKey = new Map();
+  for (const n of el.querySelectorAll('[data-unit], .ans')) {
+    if (n.classList.contains('ans')) { if (n.textContent.trim()) steps.push({ ans: true, els: [n] }); continue; }
+    const key = n.dataset.unit;
+    if (key === 'ln') { if (n.textContent.trim()) steps.push({ els: [n] }); continue; }
+    if (byKey.has(key)) { byKey.get(key).els.push(n); continue; }
+    const st = { els: [n] };
+    byKey.set(key, st); steps.push(st);
+  }
+  stepI = at === 'end' ? steps.length : 0;
+  steps.forEach((st, i) => showStep(st, i < stepI, false));
+}
+function showStep(st, on, anim) {
+  for (const n of st.els) {
+    n.classList.toggle(st.ans ? 'hid' : 'stp-hid', !on);
+    n.classList.remove('stp-in');
+    if (on && anim && deck.settings.textAnim !== 'none') { void n.offsetWidth; n.classList.add('stp-in'); }
+  }
+}
+// 다음(d=1)·이전(d=-1): 한 줄씩 넘기기면 장 안의 단계를 먼저 넘기고, 다 넘기면 장을 넘긴다
+function advance(d) {
+  if (steps.length && d > 0 && stepI < steps.length) { showStep(steps[stepI++], true, true); return; }
+  if (steps.length && d < 0 && stepI > 0) { showStep(steps[--stepI], false, false); return; }
+  go(cur + d, false, d < 0 ? 'end' : 0);
+}
+
 // 편집으로 바뀐 현재 장을 애니메이션 없이 다시 그린다
 function redraw(keepSel) {
   renderStage({ still: true, keepSel });
@@ -658,7 +714,7 @@ function snapToGraphemes(text, s, e) {
   return [a, Math.max(a, b)];
 }
 
-// 선택한 글자(없으면 칸 전체)에 서식을 켜고 끈다. op: 'b' | 'u' | 'm' | { color }
+// 선택한 글자(없으면 칸 전체)에 서식을 켜고 끈다. op: 'b' | 'u' | 'm' | 'a'(빈칸) | { color }
 function applyFormat(el, op) {
   if (!el || !isRich(el)) return;
   const items = domItems(el);
@@ -680,8 +736,8 @@ function applyFormat(el, op) {
   const runs = [];
   for (const c of chars) {
     const p = runs[runs.length - 1];
-    if (p && p.b === c.b && p.u === c.u && p.m === c.m && p.c === c.c) p.text += c.ch;
-    else runs.push({ text: c.ch, b: c.b, u: c.u, m: c.m, c: c.c });
+    if (p && p.b === c.b && p.u === c.u && p.m === c.m && p.a === c.a && p.c === c.c) p.text += c.ch;
+    else runs.push({ text: c.ch, b: c.b, u: c.u, m: c.m, a: c.a, c: c.c });
   }
   const markup = runsToMarkup(runs);
   el.innerHTML = markupToHTML(markup);
@@ -1214,7 +1270,8 @@ function buildCtx(bar) {
         ctxGroup('글자',
           ctxButton('B', '굵게 (⌘B)', () => applyFormat(el, 'b'), 'fmt-b'),
           ctxButton('U', '밑줄 (⌘U)', () => applyFormat(el, 'u'), 'fmt-u'),
-          ctxButton('형광펜', '형광펜', () => applyFormat(el, 'm'), 'fmt-m')),
+          ctxButton('형광펜', '형광펜', () => applyFormat(el, 'm'), 'fmt-m'),
+          ctxButton('빈칸', '빈칸: 한 줄씩 넘기기의 발표 화면에서 빈칸으로 시작해 넘기면 답이 나와요', () => applyFormat(el, 'a'), 'fmt-a')),
         ctxGroup('색', ctxButton('', '기본 색', () => applyFormat(el, { color: null }), 'swatch none'), ...swatches, ...colorPicker(el)),
       );
     }
@@ -1568,6 +1625,7 @@ function syncSettings() {
   $('selTextAnim').value = s.textAnim;
   $('chkImgAnim').checked = s.imgAnim;
   $('chkFloat').checked = s.float;
+  $('selStep').value = s.step;
 }
 function syncToolbar() {
   $('selType').value = deck.slides[cur].type;
@@ -1668,7 +1726,7 @@ document.addEventListener('mousemove', () => { if (mode === 'present') kickIdle(
 wrap.addEventListener('click', e => {
   if (mode !== 'present') return;
   const x = e.clientX / window.innerWidth;
-  go(cur + (x < 0.3 ? -1 : 1));
+  advance(x < 0.3 ? -1 : 1);
 });
 
 /* ===== 키보드 ===== */
@@ -1703,9 +1761,9 @@ document.addEventListener('keydown', e => {
   }
   switch (e.key) {
     case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ': case 'Enter':
-      e.preventDefault(); go(cur + 1); break;
+      e.preventDefault(); advance(1); break;
     case 'ArrowLeft': case 'ArrowUp': case 'PageUp': case 'Backspace':
-      e.preventDefault(); go(cur - 1); break;
+      e.preventDefault(); advance(-1); break;
     case 'Home': go(0); break;
     case 'End': go(deck.slides.length - 1); break;
     case 'f': case 'F': case 'p': case 'P':
@@ -1791,6 +1849,7 @@ function buildToolbar() {
   fillSelect($('selTransition'), Object.entries(TRANSITIONS));
   fillSelect($('selSlideTransition'), [['', '덱 설정 따름'], ...Object.entries(TRANSITIONS)]);
   fillSelect($('selTextAnim'), Object.entries(TEXT_ANIMS));
+  fillSelect($('selStep'), Object.entries(STEPS));
   $('btnSettings').addEventListener('click', () => {
     const p = $('settingsPanel');
     p.hidden = !p.hidden;
@@ -1811,6 +1870,7 @@ function buildToolbar() {
   $('selTextAnim').addEventListener('change', e => setAndShow(() => { deck.settings.textAnim = e.target.value; }));
   $('chkImgAnim').addEventListener('change', e => setAndShow(() => { deck.settings.imgAnim = e.target.checked; }));
   $('chkFloat').addEventListener('change', e => setAndShow(() => { deck.settings.float = e.target.checked; }));
+  $('selStep').addEventListener('change', e => { deck.settings.step = e.target.value; save(); });
 
   $('btnExport').addEventListener('click', () => {
     download('any-slide-deck.json', JSON.stringify(deck, null, 2));
