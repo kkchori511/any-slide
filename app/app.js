@@ -167,17 +167,23 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+// 이어진 빈칸 조각(서식이 바뀌어도)은 <span class="ans"> 하나로 묶어 한 빈칸으로 연다
 function runsToHTML(runs) {
-  return runs.map(r => {
-    let h = esc(r.text).replace(/\n/g, '<br>');
-    // 목록의 색은 class, 다른 색(#rrggbb, 검증된 값)은 style과 data-c로 둔다 (data-c는 편집한 글을 다시 읽을 때 쓴다)
-    if (r.c) h = r.c[0] === '#' ? `<span class="cx" data-c="${r.c}" style="color:${r.c}">${h}</span>` : `<span class="c-${r.c}">${h}</span>`;
-    if (r.m) h = `<mark>${h}</mark>`;
-    if (r.u) h = `<u>${h}</u>`;
-    if (r.b) h = `<b>${h}</b>`;
-    if (r.a) h = `<span class="ans">${h}</span>`;   // [[빈칸 답]]
-    return h;
-  }).join('');
+  let out = '', inAns = false;
+  for (const r of runs) {
+    if (!!r.a !== inAns) { out += inAns ? '</span>' : '<span class="ans">'; inAns = !inAns; }
+    out += runHTML(r);
+  }
+  return out + (inAns ? '</span>' : '');
+}
+function runHTML(r) {
+  let h = esc(r.text).replace(/\n/g, '<br>');
+  // 목록의 색은 class, 다른 색(#rrggbb, 검증된 값)은 style과 data-c로 둔다 (data-c는 편집한 글을 다시 읽을 때 쓴다)
+  if (r.c) h = r.c[0] === '#' ? `<span class="cx" data-c="${r.c}" style="color:${r.c}">${h}</span>` : `<span class="c-${r.c}">${h}</span>`;
+  if (r.m) h = `<mark>${h}</mark>`;
+  if (r.u) h = `<u>${h}</u>`;
+  if (r.b) h = `<b>${h}</b>`;
+  return h;
 }
 // 글이 줄바꿈으로 끝나면 빈 줄이 보이도록 <br>을 하나 더 둔다 (아래 domItems의 "블록의 마지막 <br>은 자리 채움" 규칙과 짝).
 // 판단은 표기 원문이 아니라 실제 글자로 한다: **A\n** 처럼 서식 안의 끝 줄바꿈도 같다.
