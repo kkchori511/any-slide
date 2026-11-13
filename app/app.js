@@ -1912,9 +1912,9 @@ setStatus(loadWarning);
 if (brokenRaw && confirm('저장된 덱을 읽지 못했고 복구용 보관에도 실패했어요.\n편집을 시작하면 덮어써지니, 원본을 파일로 내려받을까요?')) {
   download('any-slide-broken-backup.json', brokenRaw);
 }
-// 해시로 시작 위치 지정: #s=3 (슬라이드 번호), #s=3&view (전체 화면 없이 발표 화면으로 열기)
+// 해시로 시작 위치 지정: #s=3 (슬라이드 번호), #s=3&view (전체 화면 없이 발표 화면으로 열기, &all이면 한 줄씩 넘기기의 단계를 모두 보인 채로)
 // #print: 인쇄 창 없이 인쇄용 쪽만 펼쳐 둔다 (헤드리스 Chrome --print-to-pdf로 확인할 때)
 const hash = new URLSearchParams(location.hash.slice(1));
 go(Math.max(0, (parseInt(hash.get('s'), 10) || 1) - 1));
-if (hash.has('view')) setMode('present');
+if (hash.has('view')) { setMode('present'); if (hash.has('all')) setupSteps(curEl, 'end'); }
 if (hash.has('print')) buildPrintPages();

@@ -73,7 +73,7 @@ try {
     execFileSync(CHROME, [
       '--headless=new', '--disable-gpu', '--hide-scrollbars', `--user-data-dir=${profile}`,
       '--window-size=1920,1080', '--virtual-time-budget=8000', `--screenshot=${png}`,
-      `file://${tmp}#s=${i}&view`,
+      `file://${tmp}#s=${i}&view&all`,
     ], { stdio: 'ignore' });
     console.log(png);
   }
