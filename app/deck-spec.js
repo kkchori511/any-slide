@@ -3,7 +3,7 @@
 // 브라우저(app.js)와 Node(덱 검사 스크립트)가 같은 규칙을 쓰도록 DOM 없이 작성한다.
 // 새 형태나 스티커를 추가하면 .claude/skills/slide-deck/SKILL.md 의 표도 함께 고친다.
 
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 
 /* ===== 상수 ===== */
 const W = 1920, H = 1080;
@@ -42,7 +42,9 @@ const textColor = c => typeof c !== 'string' ? null : Object.hasOwn(PALETTE, c) 
 // 덱 설정: 장 전환, 글자·그림 등장
 const TRANSITIONS = { none: '없음', fade: '페이드', slide: '밀기', zoom: '확대', rise: '위로 올라오기' };
 const TEXT_ANIMS = { fly: '날아오기', fade: '페이드만', none: '없음' };
-const DEFAULT_SETTINGS = { transition: 'fade', duration: 0.5, textAnim: 'fly', imgAnim: true, float: true };
+// 넘기기: 장 단위(기본) 또는 한 줄씩(수업 자료: 발표 화면에서 줄·상자·표 행과 [[빈칸]] 답을 하나씩 보인다)
+const STEPS = { page: '장 단위', line: '한 줄씩 (수업 자료)' };
+const DEFAULT_SETTINGS = { transition: 'fade', duration: 0.5, textAnim: 'fly', imgAnim: true, float: true, step: 'page' };
 
 /* ===== 슬라이드 형태: 개체 목록 (좌표는 1920x1080 기준) =====
    모든 개체는 id가 있고, 장마다 slide.layout[id] = { x, y, w, h, rot, hidden } 으로 위치·크기·회전·숨김을 바꿀 수 있다.
@@ -305,18 +307,20 @@ function slideAligns(slide) {
 }
 
 /* ===== 글자 서식 표기 =====
-   **굵게**  __밑줄__  ==형광펜==  {{red:색 글자}}  {{#1a73e8:다른 색}}  \* 처럼 \ 뒤 글자는 그대로
-   서로 겹쳐 써도 된다. 닫지 않은 표기는 글 끝에서 닫힌다. */
+   **굵게**  __밑줄__  ==형광펜==  {{red:색 글자}}  {{#1a73e8:다른 색}}  [[빈칸 답]]  \* 처럼 \ 뒤 글자는 그대로
+   서로 겹쳐 써도 된다. 닫지 않은 표기는 글 끝에서 닫힌다.
+   [[빈칸 답]]은 보통 빨간 답으로 보이고, 한 줄씩 넘기기의 발표 화면에서만 빈칸으로 시작해 하나씩 나타난다. */
 const MARKS = { '**': 'b', '__': 'u', '==': 'm' };
 function parseMarkup(s) {
   const runs = [];
-  let st = { b: false, u: false, m: false, c: null }, buf = '';
+  let st = { b: false, u: false, m: false, a: false, c: null }, buf = '';
   const colors = [];
   const flush = () => { if (buf) { runs.push({ text: buf, ...st }); buf = ''; } };
   for (let i = 0; i < s.length; i++) {
     const ch = s[i], two = s.slice(i, i + 2);
     if (ch === '\\' && i + 1 < s.length) { buf += s[++i]; continue; }
     if (MARKS[two]) { flush(); st = { ...st, [MARKS[two]]: !st[MARKS[two]] }; i++; continue; }
+    if (two === (st.a ? ']]' : '[[')) { flush(); st = { ...st, a: !st.a }; i++; continue; }
     if (two === '{{') {
       const m = /^\{\{([a-z]+|#[0-9a-fA-F]{6}):/.exec(s.slice(i));
       const c = m && textColor(m[1]);
@@ -333,13 +337,14 @@ function stripMarkup(s) {
 }
 // 글자별 서식 묶음(runs)을 표기 문자열로 바꾼다. 바뀌는 지점에만 표기를 넣는다.
 function runsToMarkup(runs) {
-  let out = '', st = { b: false, u: false, m: false, c: null };
-  const SPECIAL = '\\*_={}';
+  let out = '', st = { b: false, u: false, m: false, a: false, c: null };
+  const SPECIAL = '\\*_={}[]';
   for (const r of runs) {
     if (st.c !== r.c && st.c) out += '}}';
     for (const [mk, key] of Object.entries(MARKS)) if (st[key] !== r[key]) out += mk;
+    if (st.a !== !!r.a) out += st.a ? ']]' : '[[';
     if (st.c !== r.c && r.c) out += `{{${r.c}:`;
-    st = { b: r.b, u: r.u, m: r.m, c: r.c };
+    st = { b: r.b, u: r.u, m: r.m, a: !!r.a, c: r.c };
     // 표기와 헷갈릴 수 있는 글자만 \로 감싼다: 같은 글자가 붙어 있거나 조각의 처음·끝
     const t = r.text;
     for (let i = 0; i < t.length; i++) {
@@ -350,6 +355,7 @@ function runsToMarkup(runs) {
   }
   if (st.c) out += '}}';
   for (const [mk, key] of Object.entries(MARKS)) if (st[key]) out += mk;
+  if (st.a) out += ']]';
   return out;
 }
 
@@ -459,6 +465,7 @@ function sanitize(d) {
     textAnim: Object.hasOwn(TEXT_ANIMS, s0.textAnim) ? s0.textAnim : (legacyOff ? 'none' : DEFAULT_SETTINGS.textAnim),
     imgAnim: typeof s0.imgAnim === 'boolean' ? s0.imgAnim : !legacyOff,
     float: typeof s0.float === 'boolean' ? s0.float : !legacyOff,
+    step: Object.hasOwn(STEPS, s0.step) ? s0.step : DEFAULT_SETTINGS.step,
   };
 
   return {
@@ -530,7 +537,7 @@ function sanitize(d) {
 
 // Node에서 읽을 수 있게 내보낸다 (브라우저에서는 위 선언이 그대로 전역으로 쓰인다)
 globalThis.DeckSpec = {
-  APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, textColor, TRANSITIONS, TEXT_ANIMS, DEFAULT_SETTINGS,
+  APP_VERSION, W, H, BG, BG_LABELS, STICKERS, STICKER_GROUPS, PALETTE, textColor, TRANSITIONS, TEXT_ANIMS, STEPS, DEFAULT_SETTINGS,
   TYPES, FIELDS, PLAIN_FIELDS, MAX_SLIDES, MAX_STICKERS, defaultDeck, sanitize, allowedSrc, isMediaSrc, isUserImgData, userImgId, MAX_USER_IMAGES,
   OBJ_MAX, objMinSize, clampPos, expandObjects, placedObjects, textBoxes, fieldsOf, countOf, groupItem, groupBoxes, cardInner, bubbleInner, codeInner, autoAlign, groupAlign, slideAligns,
   parseMarkup, stripMarkup, runsToMarkup, parseTable, tableToString, tableTracks, COL_MIN, COL_MAX,
